@@ -301,7 +301,7 @@ export default class Server {
     res: ServerResponse,
     parsedUrl?: UrlWithParsedQuery
   ): Promise<void> {
-    setLazyProp({ req: req as any }, 'cookies', getCookieParser(req))
+    setLazyProp({ req: req as any }, 'cookies', getCookieParser(req.headers))
 
     // Parse url if parsedUrl not provided
     if (!parsedUrl || typeof parsedUrl !== 'object') {
