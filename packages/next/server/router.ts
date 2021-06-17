@@ -16,7 +16,7 @@ export type RouteMatch = (pathname: string | null | undefined) => false | Params
 type RouteResult = {
   finished: boolean
   pathname?: string
-  query?: { [k: string]: string }
+  query?: { [key: string]: string | string[] }
 }
 
 export type Route = {
@@ -42,8 +42,15 @@ export type PageChecker = (pathname: string) => Promise<boolean>
 
 const customRouteTypes = new Set(['rewrite', 'redirect', 'header'])
 
+/**
+ * Removes `basePath` from `pathname` if it is present making sure that
+ * when it consists of just the basePath the root is returned.
+ *
+ * @param basePath The basePath to be removed
+ * @param pathname The pathname to remove the basePath from
+ * @returns The pathname with no basePath
+ */
 function replaceBasePath(basePath: string, pathname: string) {
-  // If replace ends up replacing the full url it'll be `undefined`, meaning we have to default it to `/`
   return pathname!.replace(basePath, '') || '/'
 }
 
@@ -119,8 +126,18 @@ export default class Router {
     res: ServerResponse,
     parsedUrl: UrlWithParsedQuery
   ): Promise<boolean> {
-    // memoize page check calls so we don't duplicate checks for pages
+    /**
+     * An object to memoize page checks.
+     */
     const pageChecks: { [name: string]: Promise<boolean> } = {}
+
+    /**
+     * A memoized version of the pageChecker that checks if a file
+     * for a given path exists.
+     *
+     * @param p Pathname to check if there is a page for.
+     * @returns True if a page exists or false otherwise.
+     */
     const memoizedPageChecker = async (p: string): Promise<boolean> => {
       p = normalizeLocalePath(p, this.locales).pathname
 
@@ -132,8 +149,22 @@ export default class Router {
       return result
     }
 
-    let parsedUrlUpdated = parsedUrl
+    /**
+     * Since we will be iterating through each route, this object accumulates
+     * potential changes to the pathname and query for cases where we rewrite
+     * or append new parameters.
+     */
+    const parsedUrlUpdated = parsedUrl
 
+    /**
+     * For the provided parsed URL it checks each of the routes in fsRoutes.
+     * For every match it will invoke the handler with a temp replacement
+     * of the parsed URL. It will go on until the request is finished.
+     *
+     * If it is not finished, it will next check for a specific page or a
+     * matching dynamic route. When there is a match, it will invoke the
+     * catchAllRoute passing `_nextBubbleNoFallback` to prevent fallbacks.
+     */
     const applyCheckTrue = async (checkParsedUrl: UrlWithParsedQuery) => {
       const originalFsPathname = checkParsedUrl.pathname
       const fsPathname = replaceBasePath(this.basePath, originalFsPathname!)
@@ -265,7 +296,6 @@ export default class Router {
       // if it is set
       let currentPathname = parsedUrlUpdated.pathname as string
       const originalPathname = currentPathname
-      const requireBasePath = testRoute.requireBasePath !== false
       const isCustomRoute = customRouteTypes.has(testRoute.type)
       const isPublicFolderCatchall = testRoute.name === 'public folder catchall'
       const keepBasePath = isCustomRoute || isPublicFolderCatchall
@@ -331,7 +361,7 @@ export default class Router {
         // 404 here when we matched an fs route
         if (!keepBasePath) {
           if (!originallyHadBasePath && !(req as any)._nextDidRewrite) {
-            if (requireBasePath) {
+            if (testRoute.requireBasePath !== false) {
               // consider this a non-match so the 404 renders
               return false
             }
@@ -340,26 +370,39 @@ export default class Router {
             continue
           }
 
+          /**
+           * Temporary change the pathname to invoke the handler when the
+           * route matches. This change should be reverted afterwards if
+           * there will be more handlers.
+           */
           parsedUrlUpdated.pathname = currentPathname
         }
 
         const result = await testRoute.fn(req, res, newParams, parsedUrlUpdated)
-
-        // The response was handled
         if (result.finished) {
           return true
         }
 
-        // since the fs route didn't match we need to re-add the basePath
-        // to continue checking rewrites with the basePath present
+        /**
+         * Since at this point there will be more routes to match we must
+         * restore the original pathname if it was previously changed.
+         */
         if (!keepBasePath) {
           parsedUrlUpdated.pathname = originalPathname
         }
 
+        /**
+         * When the result of the invoked handler has an effect to change
+         * the pathname we will carry the change within the ParsedURL.
+         */
         if (result.pathname) {
           parsedUrlUpdated.pathname = result.pathname
         }
 
+        /**
+         * When the result of the invoked handler has an effect to change
+         * the query we will merge the query with the current one.
+         */
         if (result.query) {
           parsedUrlUpdated.query = {
             ...parsedUrlUpdated.query,
@@ -367,7 +410,11 @@ export default class Router {
           }
         }
 
-        // check filesystem
+        /**
+         * If the route matched and it has a flag to check the filesystem,
+         * we shorcut applying the filesystem routing. This happens for
+         * rewrite handlers.
+         */
         if (testRoute.check === true) {
           if (await applyCheckTrue(parsedUrlUpdated)) {
             return true
