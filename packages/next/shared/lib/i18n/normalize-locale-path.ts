@@ -1,3 +1,12 @@
+/**
+ * For a pathname that may include a locale from a list of locales, it
+ * removes the locale from the pathname returning it alonside with the
+ * detected locale.
+ *
+ * @param pathname A pathname that may include a locale.
+ * @param locales A list of locales.
+ * @returns The pathname without locale and maybe the detected locale.
+ */
 export function normalizeLocalePath(
   pathname: string,
   locales?: string[]
