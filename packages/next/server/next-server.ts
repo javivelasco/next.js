@@ -13,10 +13,7 @@ import { format as formatUrl, parse as parseUrl, UrlWithParsedQuery } from 'url'
 import { PrerenderManifest } from '../build'
 import {
   getRedirectStatus,
-  Header,
-  Redirect,
   Rewrite,
-  RouteType,
   CustomRoutes,
   modifyRouteRegex,
 } from '../lib/load-custom-routes'
@@ -823,185 +820,48 @@ export default class Server {
       ...staticFilesRoute,
     ]
 
-    const restrictedRedirectPaths = ['/_next'].map((p) =>
-      this.nextConfig.basePath ? `${this.nextConfig.basePath}${p}` : p
-    )
-
-    const getCustomRoute = (
-      r: Rewrite | Redirect | Header,
-      type: RouteType
-    ) => {
-      const match = getCustomRouteMatcher(
-        r.source,
-        !(r as any).internal
-          ? (regex: string) =>
-              modifyRouteRegex(
-                regex,
-                type === 'redirect' ? restrictedRedirectPaths : undefined
-              )
-          : undefined
-      )
-
-      return {
-        ...r,
-        type,
-        match,
-        name: type,
-        fn: async (_req, _res, _params, _parsedUrl) => ({ finished: false }),
-      } as Route & Rewrite & Header
-    }
-
     // Headers come very first
-    const headers = this.minimalMode
+    const headers: Route[] = this.minimalMode
       ? []
-      : this.customRoutes.headers.map((r) => {
-          const headerRoute = getCustomRoute(r, 'header')
-          return {
-            match: headerRoute.match,
-            has: headerRoute.has,
-            type: headerRoute.type,
-            name: `${headerRoute.type} ${headerRoute.source} header route`,
-            fn: async (_req, res, params, _parsedUrl) => {
-              const hasParams = Object.keys(params).length > 0
-
-              for (const header of (headerRoute as Header).headers) {
-                let { key, value } = header
-                if (hasParams) {
-                  key = compileNonPath(key, params)
-                  value = compileNonPath(value, params)
-                }
-                res.setHeader(key, value)
+      : this.customRoutes.headers.map((r) => ({
+          match: getCustomRouteMatcher(r.source, (regex: string) => modifyRouteRegex(regex)),
+          has: r.has,
+          type: 'header',
+          name: `header ${r.source} header route`,
+          fn: async (_req, res, params, _parsedUrl) => {
+            const hasParams = Object.keys(params).length > 0
+            for (const header of r.headers) {
+              let { key, value } = header
+              if (hasParams) {
+                key = compileNonPath(key, params)
+                value = compileNonPath(value, params)
               }
-              return { finished: false }
-            },
-          } as Route
-        })
-
-    // since initial query values are decoded by querystring.parse
-    // we need to re-encode them here but still allow passing through
-    // values from rewrites/redirects
-    const stringifyQuery = (req: IncomingMessage, query: ParsedUrlQuery) => {
-      const initialQueryValues = Object.values((req as any).__NEXT_INIT_QUERY)
-
-      return stringifyQs(query, undefined, undefined, {
-        encodeURIComponent(value) {
-          if (initialQueryValues.some((val) => val === value)) {
-            return encodeURIComponent(value)
-          }
-          return value
-        },
-      })
-    }
-
-    const redirects = this.minimalMode
-      ? []
-      : this.customRoutes.redirects.map((redirect) => {
-          const redirectRoute = getCustomRoute(redirect, 'redirect')
-          return {
-            internal: redirectRoute.internal,
-            type: redirectRoute.type,
-            match: redirectRoute.match,
-            has: redirectRoute.has,
-            statusCode: redirectRoute.statusCode,
-            name: `Redirect route ${redirectRoute.source}`,
-            fn: async (req, res, params, parsedUrl) => {
-              const { parsedDestination } = prepareDestination(
-                redirectRoute.destination,
-                params,
-                parsedUrl.query,
-                false
-              )
-
-              const { query } = parsedDestination
-              delete (parsedDestination as any).query
-
-              parsedDestination.search = stringifyQuery(req, query)
-
-              const updatedDestination = formatUrl(parsedDestination)
-
-              res.setHeader('Location', updatedDestination)
-              res.statusCode = getRedirectStatus(redirectRoute as Redirect)
-
-              // Since IE11 doesn't support the 308 header add backwards
-              // compatibility using refresh header
-              if (res.statusCode === 308) {
-                res.setHeader('Refresh', `0;url=${updatedDestination}`)
-              }
-
-              res.end()
-              return {
-                finished: true,
-              }
-            },
-          } as Route
-        })
-
-    const buildRewrite = (rewrite: Rewrite, check = true) => {
-      const rewriteRoute = getCustomRoute(rewrite, 'rewrite')
-      return {
-        ...rewriteRoute,
-        check,
-        type: rewriteRoute.type,
-        name: `Rewrite route ${rewriteRoute.source}`,
-        match: rewriteRoute.match,
-        fn: async (req, res, params, parsedUrl) => {
-          const { newUrl, parsedDestination } = prepareDestination(
-            rewriteRoute.destination,
-            params,
-            parsedUrl.query,
-            true
-          )
-
-          // external rewrite, proxy it
-          if (parsedDestination.protocol) {
-            const { query } = parsedDestination
-            delete (parsedDestination as any).query
-            parsedDestination.search = stringifyQuery(req, query)
-
-            const target = formatUrl(parsedDestination)
-            const proxy = new Proxy({
-              target,
-              changeOrigin: true,
-              ignorePath: true,
-              proxyTimeout: 30_000, // limit proxying to 30 seconds
-            })
-
-            await new Promise((proxyResolve, proxyReject) => {
-              let finished = false
-
-              proxy.on('proxyReq', (proxyReq) => {
-                proxyReq.on('close', () => {
-                  if (!finished) {
-                    finished = true
-                    proxyResolve(true)
-                  }
-                })
-              })
-              proxy.on('error', (err) => {
-                if (!finished) {
-                  finished = true
-                  proxyReject(err)
-                }
-              })
-              proxy.web(req, res)
-            })
-
-            return {
-              finished: true,
+              res.setHeader(key, value)
             }
-          }
-          ;(req as any)._nextRewroteUrl = newUrl
-          ;(req as any)._nextDidRewrite =
-            (req as any)._nextRewroteUrl !== req.url
+            return { finished: false }
+          },
+        }))
 
-          return {
-            finished: false,
-            pathname: newUrl,
-            query: parsedDestination.query,
-          }
-        },
-      } as Route
-    }
+    const redirects: Route[] = this.minimalMode
+      ? []
+      : this.customRoutes.redirects.map((redirect) => ({
+          // internal type used for validation (not user facing)
+          internal: (redirect as any).internal,
+          type: 'redirect',
+          match: getCustomRouteMatcher(redirect.source, !(redirect as any).internal ? (regex: string) => modifyRouteRegex(regex, ['/_next'].map((p) => this.nextConfig.basePath ? `${this.nextConfig.basePath}${p}` : p)) : undefined),
+          has: redirect.has,
+          statusCode: redirect.statusCode,
+          name: `Redirect route ${redirect.source}`,
+          fn: getRedirectHandler(redirect),
+        }))
+
+    const getRewriteRoute = (rewrite: Rewrite, check = true) => ({
+      check,
+      type: 'rewrite',
+      name: `Rewrite route ${rewrite.source}`,
+      match: getCustomRouteMatcher(rewrite.source, (regex: string) => modifyRouteRegex(regex)),
+      fn: getRewriteHandler(rewrite),
+    })
 
     let beforeFiles: Route[] = []
     let afterFiles: Route[] = []
@@ -1009,16 +869,16 @@ export default class Server {
 
     if (!this.minimalMode) {
       if (Array.isArray(this.customRoutes.rewrites)) {
-        afterFiles = this.customRoutes.rewrites.map((r) => buildRewrite(r))
+        afterFiles = this.customRoutes.rewrites.map((r) => getRewriteRoute(r))
       } else {
         beforeFiles = this.customRoutes.rewrites.beforeFiles.map((r) =>
-          buildRewrite(r, false)
+          getRewriteRoute(r, false)
         )
         afterFiles = this.customRoutes.rewrites.afterFiles.map((r) =>
-          buildRewrite(r)
+          getRewriteRoute(r)
         )
         fallback = this.customRoutes.rewrites.fallback.map((r) =>
-          buildRewrite(r)
+          getRewriteRoute(r)
         )
       }
     }
@@ -2288,6 +2148,115 @@ function prepareServerlessUrl(
       ...query,
     },
   })
+}
+
+// since initial query values are decoded by querystring.parse
+// we need to re-encode them here but still allow passing through
+// values from rewrites/redirects
+function stringifyQuery(req: IncomingMessage, query: ParsedUrlQuery) {
+  const initialQueryValues = Object.values((req as any).__NEXT_INIT_QUERY)
+  return stringifyQs(query, undefined, undefined, {
+    encodeURIComponent(value) {
+      if (initialQueryValues.some((val) => val === value)) {
+        return encodeURIComponent(value)
+      }
+      return value
+    },
+  })
+}
+
+function getRedirectHandler(redirectRoute: {
+  destination: string
+  statusCode?: number
+  permanent?: boolean
+}): Route['fn'] {
+  return async (req, res, params, parsedUrl) => {
+    const { parsedDestination } = prepareDestination(
+      redirectRoute.destination,
+      params,
+      parsedUrl.query,
+      false
+    )
+
+    const { query } = parsedDestination
+    delete (parsedDestination as any).query
+
+    parsedDestination.search = stringifyQuery(req, query)
+
+    const updatedDestination = formatUrl(parsedDestination)
+
+    res.setHeader('Location', updatedDestination)
+    res.statusCode = getRedirectStatus(redirectRoute)
+
+    // Since IE11 doesn't support the 308 header add backwards
+    // compatibility using refresh header
+    if (res.statusCode === 308) {
+      res.setHeader('Refresh', `0;url=${updatedDestination}`)
+    }
+
+    res.end()
+    return {
+      finished: true,
+    }
+  }
+}
+
+function getRewriteHandler(rewriteRoute: { destination: string }): Route['fn'] {
+  return async (req, res, params, parsedUrl) => {
+    const { newUrl, parsedDestination } = prepareDestination(
+      rewriteRoute.destination,
+      params,
+      parsedUrl.query,
+      true
+    )
+
+    // external rewrite, proxy it
+    if (parsedDestination.protocol) {
+      const { query } = parsedDestination
+      delete (parsedDestination as any).query
+      parsedDestination.search = stringifyQuery(req, query)
+
+      const target = formatUrl(parsedDestination)
+      const proxy = new Proxy({
+        target,
+        changeOrigin: true,
+        ignorePath: true,
+        proxyTimeout: 30_000, // limit proxying to 30 seconds
+      })
+
+      await new Promise((proxyResolve, proxyReject) => {
+        let finished = false
+
+        proxy.on('proxyReq', (proxyReq) => {
+          proxyReq.on('close', () => {
+            if (!finished) {
+              finished = true
+              proxyResolve(true)
+            }
+          })
+        })
+        proxy.on('error', (err) => {
+          if (!finished) {
+            finished = true
+            proxyReject(err)
+          }
+        })
+        proxy.web(req, res)
+      })
+
+      return {
+        finished: true,
+      }
+    }
+    ;(req as any)._nextRewroteUrl = newUrl
+    ;(req as any)._nextDidRewrite = (req as any)._nextRewroteUrl !== req.url
+
+    return {
+      finished: false,
+      pathname: newUrl,
+      query: parsedDestination.query,
+    }
+  }
 }
 
 class NoFallbackError extends Error {}
