@@ -36,6 +36,7 @@ import { __overrideCssConfiguration } from './webpack/config/blocks/css/override
 import BuildManifestPlugin from './webpack/plugins/build-manifest-plugin'
 import BuildStatsPlugin from './webpack/plugins/build-stats-plugin'
 import ChunkNamesPlugin from './webpack/plugins/chunk-names-plugin'
+import EdgeFunctionsPlugin from './webpack/plugins/edge-manifest-plugin'
 import { JsConfigPathsPlugin } from './webpack/plugins/jsconfig-paths-plugin'
 import { DropClientPage } from './webpack/plugins/next-drop-client-page-plugin'
 import NextJsSsrImportPlugin from './webpack/plugins/nextjs-ssr-import'
@@ -1264,6 +1265,7 @@ export default async function getBaseWebpackConfig(
       isServerless && isServer && new ServerlessPlugin(),
       isServer &&
         new PagesManifestPlugin({ serverless: isLikeServerless, dev }),
+      isServer && new EdgeFunctionsPlugin({ dev }),
       !isWebpack5 &&
         target === 'server' &&
         isServer &&
