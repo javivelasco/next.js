@@ -193,6 +193,16 @@ export default class BuildManifestPlugin {
         const ssgManifestPath = `${CLIENT_STATIC_FILES_PATH}/${this.buildId}/_ssgManifest.js`
         assetMap.lowPriorityFiles.push(ssgManifestPath)
         assets[ssgManifestPath] = new sources.RawSource(srcEmptySsgManifest)
+
+        /**
+         * Because the BuildManifestPlugin executes on the client, we can inject
+         * here a deferred fetch for the edgeManifest.js that allows to check
+         * the edge functions to be invoked from the client.
+         */
+        const srcEmptyEdgeManifest = `self.__EDGE_MANIFEST=new Set;self.__EDGE_MANIFEST_CB&&self.__EDGE_MANIFEST_CB()`
+        const edgeManifestPath = `${CLIENT_STATIC_FILES_PATH}/${this.buildId}/_edgeManifest.js`
+        assetMap.lowPriorityFiles.push(edgeManifestPath)
+        assets[edgeManifestPath] = new sources.RawSource(srcEmptyEdgeManifest)
       }
 
       assetMap.pages = Object.keys(assetMap.pages)
