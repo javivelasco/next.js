@@ -32,6 +32,7 @@ import {
   BUILD_ID_FILE,
   BUILD_MANIFEST,
   CLIENT_STATIC_FILES_PATH,
+  EDGE_MANIFEST,
   EXPORT_DETAIL,
   EXPORT_MARKER,
   FONT_MANIFEST,
@@ -87,6 +88,7 @@ import {
   getCssFilePaths,
 } from './utils'
 import getBaseWebpackConfig from './webpack-config'
+import { EdgeManifest } from './webpack/plugins/edge-manifest-plugin'
 import { PagesManifest } from './webpack/plugins/pages-manifest-plugin'
 import { writeBuildId } from './write-build-id'
 import { normalizeLocalePath } from '../shared/lib/i18n/normalize-locale-path'
@@ -762,7 +764,7 @@ export default async function build(
             let ssgPageRoutes: string[] | null = null
 
             const nonReservedPage = !page.match(
-              /^\/(_app|_error|_document|api(\/|$))/
+              /(^\/(_app|_error|_document|api(\/|$))|_edge$)/
             )
 
             if (nonReservedPage) {
@@ -1525,6 +1527,27 @@ export default async function build(
       )
     }
 
+    /**
+     * Read the edge-manifest.json generated from the Webpack Plugin that
+     * includes all of the edge functions and their files.
+     */
+    const edgeManifest: EdgeManifest = JSON.parse(
+      await promises.readFile(
+        path.join(
+          distDir,
+          isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
+          EDGE_MANIFEST
+        ),
+        'utf8'
+      )
+    )
+
+    /**
+     * Generate a version of the EdgeManifest that will be loaded by the
+     * client in a deferred script.
+     */
+    await generateClientEdgeManifest(edgeManifest, distDir, buildId)
+
     const images = { ...config.images }
     const { deviceSizes, imageSizes } = images
     images.sizes = [...deviceSizes, ...imageSizes]
@@ -1616,6 +1639,21 @@ function generateClientSsgManifest(
 
   writeFileSync(
     path.join(distDir, CLIENT_STATIC_FILES_PATH, buildId, '_ssgManifest.js'),
+    clientSsgManifestContent
+  )
+}
+
+function generateClientEdgeManifest(
+  edgeManifest: EdgeManifest,
+  buildId: string,
+  distDir: string
+) {
+  const clientSsgManifestContent = `self.__EDGE_MANIFEST=${devalue(
+    Object.keys(edgeManifest)
+  )};self.__EDGE_MANIFEST_CB&&self.__EDGE_MANIFEST_CB()`
+
+  writeFileSync(
+    path.join(distDir, CLIENT_STATIC_FILES_PATH, buildId, '_edgeManifest.js'),
     clientSsgManifestContent
   )
 }
