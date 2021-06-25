@@ -1371,12 +1371,12 @@ export default class Router implements BaseRouter {
       let dataHref: string | undefined
 
       if (__N_SSG || __N_SSP) {
-        dataHref = this.pageLoader.getDataHref(
-          formatWithValidation({ pathname, query }),
-          resolvedAs,
-          __N_SSG,
-          this.locale
-        )
+        dataHref = this.pageLoader.getInternalHref({
+          href: formatWithValidation({ pathname, query }),
+          asPath: resolvedAs,
+          ssg: __N_SSG,
+          locale: this.locale,
+        })
       }
 
       const props = await this._getData<CompletePrivateRouteInfo>(() =>
@@ -1556,14 +1556,15 @@ export default class Router implements BaseRouter {
       this.pageLoader._isSsg(route).then((isSsg: boolean) => {
         return isSsg
           ? this._getStaticData(
-              this.pageLoader.getDataHref(
-                url,
-                resolvedAs,
-                true,
-                typeof options.locale !== 'undefined'
-                  ? options.locale
-                  : this.locale
-              )
+              this.pageLoader.getInternalHref({
+                href: url,
+                asPath: resolvedAs,
+                ssg: true,
+                locale:
+                  typeof options.locale !== 'undefined'
+                    ? options.locale
+                    : this.locale,
+              })
             )
           : false
       }),
