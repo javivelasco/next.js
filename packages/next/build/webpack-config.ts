@@ -851,8 +851,9 @@ export default async function getBaseWebpackConfig(
         ? isWebpack5 && !dev
           ? ({
               filename: '[name].js',
-              // allow to split entrypoints
-              chunks: 'all',
+              // allow to split entrypoints only for non-edge functions
+              chunks: (chunk: webpack.compilation.Chunk) =>
+                !chunk.name?.endsWith('_edge'),
               // size of files is not so relevant for server build
               // we want to prefer deduplication to load less code
               minSize: 1000,
