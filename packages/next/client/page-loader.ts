@@ -87,12 +87,19 @@ export default class PageLoader {
    * @param {string} asPath the URL as shown in browser (virtual path); used for dynamic routes
    * @returns {string}
    */
-  getDataHref(
-    href: string,
-    asPath: string,
-    ssg: boolean,
+  getInternalHref({
+    href,
+    asPath,
+    ssg,
+    segment = 'data',
+    locale,
+  }: {
+    href: string
+    asPath: string
+    ssg: boolean
     locale?: string | false
-  ): string {
+    segment: 'edge' | 'data'
+  }): string {
     const { pathname: hrefPathname, query, search } = parseRelativeUrl(href)
     const { pathname: asPathname } = parseRelativeUrl(asPath)
     const route = normalizeRoute(hrefPathname)
@@ -103,7 +110,7 @@ export default class PageLoader {
         '.json'
       )
       return addBasePath(
-        `/_next/data/${this.buildId}${dataRoute}${ssg ? '' : search}`
+        `/_next/${segment}/${this.buildId}${dataRoute}${ssg ? '' : search}`
       )
     }
 
