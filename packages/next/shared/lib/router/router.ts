@@ -33,6 +33,8 @@ import { searchParamsToUrlQuery } from './utils/querystring'
 import resolveRewrites from './utils/resolve-rewrites'
 import { getRouteMatcher } from './utils/route-matcher'
 import { getRouteRegex } from './utils/route-regex'
+import { getEdgeFunctionRegex } from './utils/get-edge-function-regex'
+import prepareDestination from './utils/prepare-destination'
 
 declare global {
   interface Window {
@@ -55,6 +57,12 @@ interface NextHistoryState {
   url: string
   as: string
   options: TransitionOptions
+}
+
+interface PreflightData {
+  headers?: { [key: string]: string }
+  redirect?: { status: number; location: string }
+  rewrite?: { destination: string }
 }
 
 type HistoryState =
@@ -518,6 +526,8 @@ export default class Router implements BaseRouter {
   sdc: { [asPath: string]: object } = {}
   // In-flight Server Data Requests, for deduping
   sdr: { [asPath: string]: Promise<object> } = {}
+  // In-flight Edge Data Requests
+  sde: { [asPath: string]: object } = {}
 
   sub: Subscription
   clc: ComponentLoadCancel
@@ -950,9 +960,6 @@ export default class Router implements BaseRouter {
       return true
     }
 
-    let parsed = parseRelativeUrl(url)
-    let { pathname, query } = parsed
-
     // The build manifest needs to be loaded before auto-static dynamic pages
     // get their query parameters to allow ensuring they can be parsed properly
     // when rewritten to
@@ -979,6 +986,9 @@ export default class Router implements BaseRouter {
     // we need to resolve the as value using rewrites for dynamic SSG
     // pages to allow building the data URL correctly
     let resolvedAs = as
+
+    let parsed = parseRelativeUrl(url)
+    let { pathname, query } = parsed
 
     // url and as should always be prefixed with basePath by this
     // point by either next/link or router.push/replace so strip the
@@ -1015,6 +1025,26 @@ export default class Router implements BaseRouter {
           pathname = parsed.pathname
           parsed.pathname = addBasePath(pathname)
           url = formatWithValidation(parsed)
+        }
+      }
+    }
+
+    const effects = await this._preflightRequest({ pathname, query, as, pages })
+    if (effects) {
+      if (effects.type === 'rewrite' && effects.resolvedHref) {
+        pathname = effects.resolvedHref
+        parsed.pathname = pathname
+        url = formatWithValidation(parsed)
+      }
+
+      if (effects.type === 'redirect') {
+        if (effects.destination) {
+          window.location.href = effects.destination
+          return new Promise(() => {})
+        }
+
+        if (effects.newAs) {
+          return this.change(method, effects.newUrl, effects.newAs, options)
         }
       }
     }
@@ -1493,7 +1523,7 @@ export default class Router implements BaseRouter {
   ): Promise<void> {
     let parsed = parseRelativeUrl(url)
 
-    let { pathname } = parsed
+    let { pathname, query } = parsed
 
     if (process.env.__NEXT_I18N_SUPPORT) {
       if (options.locale === false) {
@@ -1545,12 +1575,27 @@ export default class Router implements BaseRouter {
         url = formatWithValidation(parsed)
       }
     }
-    const route = removePathTrailingSlash(pathname)
 
     // Prefetch is not supported in development mode because it would trigger on-demand-entries
     if (process.env.NODE_ENV !== 'production') {
       return
     }
+
+    const effects = await this._preflightRequest({
+      pathname,
+      query,
+      as: asPath,
+      pages,
+      cache: true,
+    })
+
+    if (effects?.matchedPage && effects.resolvedHref) {
+      pathname = effects.resolvedHref
+      parsed.pathname = pathname
+      url = formatWithValidation(parsed)
+    }
+
+    const route = removePathTrailingSlash(pathname)
 
     await Promise.all([
       this.pageLoader._isSsg(route).then((isSsg: boolean) => {
@@ -1595,6 +1640,113 @@ export default class Router implements BaseRouter {
     return componentResult
   }
 
+  async _preflightRequest(options: {
+    as: string
+    pathname: string
+    query: ParsedUrlQuery
+    pages: string[]
+    cache?: boolean
+  }) {
+    const cleanedAs = delLocale(
+      hasBasePath(options.as) ? delBasePath(options.as) : options.as,
+      this.locale
+    )
+
+    const fns: string[] = await this.pageLoader.getEdgeFunctionsList()
+    const requiresPreflight = fns.some((edgeFunction) => {
+      return getRouteMatcher(getEdgeFunctionRegex(edgeFunction))(cleanedAs)
+    })
+
+    if (!requiresPreflight) {
+      return undefined
+    }
+
+    const edgeHref = this.pageLoader.getInternalHref({
+      asPath: cleanedAs,
+      href: formatWithValidation({
+        pathname: options.pathname,
+        query: options.query,
+      }),
+      locale: this.locale,
+      segment: 'preflight',
+    })
+
+    const preflightData = await this._getPreflightData(edgeHref, options.cache)
+
+    if (preflightData.rewrite) {
+      const destRes = prepareDestination(
+        preflightData.rewrite.destination,
+        {},
+        options.query,
+        false
+      )
+      const fsPathname = removePathTrailingSlash(
+        normalizeLocalePath(destRes.newUrl, this.locales).pathname
+      )
+
+      let matchedPage
+      let resolvedHref
+
+      if (options.pages.includes(fsPathname)) {
+        // check if we now match a page as this means we are done
+        // resolving the rewrites
+        matchedPage = true
+        resolvedHref = fsPathname
+      } else {
+        // check if we match a dynamic-route, if so we break the rewrites chain
+        resolvedHref = resolveDynamicRoute(fsPathname, options.pages)
+
+        if (
+          resolvedHref !== destRes.newUrl &&
+          options.pages.includes(resolvedHref)
+        ) {
+          matchedPage = true
+        }
+      }
+
+      return {
+        type: 'rewrite',
+        asPath: destRes.newUrl,
+        parsedAs: destRes.parsedDestination,
+        matchedPage,
+        resolvedHref,
+      }
+    }
+
+    if (preflightData.redirect) {
+      if (preflightData.redirect.location.startsWith('/')) {
+        const parsedHref = parseRelativeUrl(preflightData.redirect.location)
+        parsedHref.pathname = resolveDynamicRoute(
+          parsedHref.pathname,
+          options.pages
+        )
+
+        const { url: newUrl, as: newAs } = prepareUrlAs(
+          this,
+          preflightData.redirect.location,
+          preflightData.redirect.location
+        )
+
+        return {
+          type: 'redirect',
+          newUrl,
+          newAs,
+        }
+      }
+
+      return {
+        type: 'redirect',
+        destination: preflightData.redirect?.location,
+      }
+    }
+
+    /**
+     * Cookies will come in the request so we do not need to apply
+     * effects based on headers that are included in the edge.
+     */
+    return undefined
+  }
+
   _getData<T>(fn: () => Promise<T>): Promise<T> {
     let cancelled = false
     const cancel = () => {
@@ -1614,6 +1766,50 @@ export default class Router implements BaseRouter {
 
       return data
     })
+  }
+
+  /**
+   * Fetch the preflight data and return the effects or an empty object if
+   * there are no effects. Optionally, data can be cached although it us
+   * useful only on prefetch since it can happen many times in a row.
+   *
+   * @param preflightHref The preflight URL.
+   * @param shouldCache Tells if the effects should be cached.
+   */
+  _getPreflightData(
+    preflightHref: string,
+    shouldCache: boolean = false
+  ): Promise<PreflightData> {
+    const { href: cacheKey } = new URL(preflightHref, window.location.href)
+
+    if (
+      process.env.NODE_ENV === 'production' &&
+      !this.isPreview &&
+      shouldCache &&
+      this.sde[cacheKey]
+    ) {
+      return Promise.resolve(this.sde[cacheKey])
+    }
+
+    return fetch(preflightHref, { credentials: 'same-origin' })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to preflight request`)
+        }
+
+        return res.json()
+      })
+      .then((data) => {
+        if (shouldCache) {
+          this.sde[cacheKey] = data
+        }
+
+        return data
+      })
+      .catch((err) => {
+        delete this.sde[cacheKey]
+        throw err
+      })
   }
 
   _getStaticData(dataHref: string): Promise<object> {
