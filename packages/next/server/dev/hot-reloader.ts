@@ -355,8 +355,8 @@ export default class HotReloader {
 
         await Promise.all(
           Object.keys(entries).map(async (page) => {
-            const isServerOnly =
-              page.match(API_ROUTE) || page.match(EDGE_FUNCTION_ROUTE)
+            const isEdgeFunction = page.match(EDGE_FUNCTION_ROUTE)
+            const isServerOnly = page.match(API_ROUTE) || isEdgeFunction
             if (isClientCompilation && isServerOnly) {
               return
             }
@@ -378,11 +378,15 @@ export default class HotReloader {
               absolutePagePath,
             }
 
-            entrypoints[
-              isClientCompilation ? clientBundlePath : serverBundlePath
-            ] = isClientCompilation
-              ? `next-client-pages-loader?${stringify(pageLoaderOpts)}!`
-              : absolutePagePath
+            if (isClientCompilation) {
+              entrypoints[
+                clientBundlePath
+              ] = `next-client-pages-loader?${stringify(pageLoaderOpts)}!`
+            } else {
+              entrypoints[serverBundlePath] = isEdgeFunction
+                ? `next-edge-loader?${stringify(pageLoaderOpts)}!`
+                : absolutePagePath
+            }
           })
         )
 

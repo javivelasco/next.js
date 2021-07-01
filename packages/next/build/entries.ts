@@ -6,6 +6,7 @@ import { __ApiPreviewProps } from '../server/api-utils'
 import { isTargetLikeServerless } from '../server/config'
 import { normalizePagePath } from '../server/normalize-page-path'
 import { EDGE_FUNCTION_ROUTE } from '../lib/constants'
+import { EdgeLoaderOptions } from './webpack/loaders/next-edge-loader'
 import { warn } from './output/log'
 import { ClientPagesLoaderOptions } from './webpack/loaders/next-client-pages-loader'
 import { ServerlessLoaderQuery } from './webpack/loaders/next-serverless-loader'
@@ -139,6 +140,13 @@ export function createEntrypoints(
       }
       server[serverBundlePath] = `next-serverless-loader?${stringify(
         serverlessLoaderOptions
+      )}!`
+    }
+
+    if (isEdgeFunction) {
+      const edgeLoaderOpts: EdgeLoaderOptions = { absolutePagePath }
+      server[serverBundlePath] = `next-edge-loader?${stringify(
+        edgeLoaderOpts
       )}!`
     }
 
