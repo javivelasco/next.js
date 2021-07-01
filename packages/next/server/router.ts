@@ -65,6 +65,7 @@ export default class Router {
     fallback: Route[]
   }
   catchAllRoute: Route
+  catchAllEdgeFunctions: Route
   pageChecker: PageChecker
   dynamicRoutes: DynamicRoutes
   useFileSystemPublicRoutes: boolean
@@ -81,6 +82,7 @@ export default class Router {
     },
     redirects = [],
     catchAllRoute,
+    catchAllEdgeFunctions,
     dynamicRoutes = [],
     pageChecker,
     useFileSystemPublicRoutes,
@@ -96,6 +98,7 @@ export default class Router {
     }
     redirects: Route[]
     catchAllRoute: Route
+    catchAllEdgeFunctions: Route
     dynamicRoutes: DynamicRoutes | undefined
     pageChecker: PageChecker
     useFileSystemPublicRoutes: boolean
@@ -108,6 +111,7 @@ export default class Router {
     this.redirects = redirects
     this.pageChecker = pageChecker
     this.catchAllRoute = catchAllRoute
+    this.catchAllEdgeFunctions = catchAllEdgeFunctions
     this.dynamicRoutes = dynamicRoutes
     this.useFileSystemPublicRoutes = useFileSystemPublicRoutes
     this.locales = locales
@@ -229,6 +233,7 @@ export default class Router {
       ...this.redirects,
       ...this.rewrites.beforeFiles,
       ...this.fsRoutes,
+      ...(this.useFileSystemPublicRoutes ? [this.catchAllEdgeFunctions] : []),
       // We only check the catch-all route if public page routes hasn't been
       // disabled
       ...(this.useFileSystemPublicRoutes

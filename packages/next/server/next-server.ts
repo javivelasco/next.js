@@ -22,6 +22,7 @@ import {
   CLIENT_PUBLIC_FILES_PATH,
   CLIENT_STATIC_FILES_PATH,
   CLIENT_STATIC_FILES_RUNTIME,
+  EDGE_MANIFEST,
   PAGES_MANIFEST,
   PERMANENT_REDIRECT_STATUS,
   PRERENDER_MANIFEST,
@@ -32,6 +33,7 @@ import {
   TEMPORARY_REDIRECT_STATUS,
 } from '../shared/lib/constants'
 import {
+  getEdgeFunctionRegex,
   getRouteMatcher,
   getRouteRegex,
   getSortedRoutes,
@@ -54,10 +56,18 @@ import {
 import { DomainLocales, isTargetLikeServerless, NextConfig } from './config'
 import pathMatch from '../shared/lib/router/utils/path-match'
 import { recursiveReadDirSync } from './lib/recursive-readdir-sync'
-import { loadComponents, LoadComponentsReturnType } from './load-components'
+import {
+  interopDefault,
+  loadComponents,
+  LoadComponentsReturnType,
+} from './load-components'
 import { normalizePagePath } from './normalize-page-path'
 import { RenderOpts, RenderOptsPartial, renderToHTML } from './render'
-import { getPagePath, requireFontManifest } from './require'
+import {
+  getEdgeFunctionPath,
+  getPagePath,
+  requireFontManifest,
+} from './require'
 import Router, {
   DynamicRoutes,
   PageChecker,
@@ -90,6 +100,8 @@ import cookie from 'next/dist/compiled/cookie'
 import escapePathDelimiters from '../shared/lib/router/utils/escape-path-delimiters'
 import { getUtils } from '../build/webpack/loaders/next-serverless-loader/utils'
 import { PreviewData } from 'next/types'
+import { NextEdgeUrl, Effects } from './edge-functions'
+import { EdgeManifest } from '../build/webpack/plugins/edge-manifest-plugin'
 
 const getCustomRouteMatcher = pathMatch(true)
 
@@ -107,6 +119,19 @@ export type FindComponentsResult = {
 type DynamicRouteItem = {
   page: string
   match: ReturnType<typeof getRouteMatcher>
+}
+
+type EdgeFunction = {
+  /**
+   * A matcher for the edge function that would match if the given path is
+   * a child of the edge function in the file tree.
+   */
+  match: ReturnType<typeof getRouteMatcher>
+  /**
+   * The page where the edge function is located. This is the location that
+   * will be used to find the function.
+   */
+  page: string
 }
 
 export type ServerConstructor = {
@@ -167,6 +192,8 @@ export default class Server {
   protected router: Router
   protected dynamicRoutes?: DynamicRoutes
   protected customRoutes: CustomRoutes
+  protected edgeFunctions?: EdgeFunction[]
+  protected edgeManifest?: EdgeManifest
 
   public constructor({
     dir = '.',
@@ -242,8 +269,10 @@ export default class Server {
       this._isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
     )
     const pagesManifestPath = join(this.serverBuildDir, PAGES_MANIFEST)
+    const edgeManifestPath = join(this.serverBuildDir, EDGE_MANIFEST)
 
     if (!dev) {
+      this.edgeManifest = require(edgeManifestPath)
       this.pagesManifest = require(pagesManifestPath)
     }
 
@@ -632,6 +661,187 @@ export default class Server {
     return this.getPrerenderManifest().preview
   }
 
+  /**
+   * Assuming there is an EdgeManifest file, this function gets all of the keys
+   * and sorts them to get to know the locations of each edge function. Then
+   * they are mapped to a matcher.
+   */
+  protected getEdgeFunctions() {
+    const locations = getSortedRoutes(Object.keys(this.edgeManifest || {}))
+    return (this.edgeFunctions = locations.map((page) => ({
+      match: getRouteMatcher(getEdgeFunctionRegex(page)),
+      page,
+    })))
+  }
+
+  /**
+   * Works as a placeholder for the dev server where we build Edge Functions
+   * and pages on demand. It must be called before requiring the function to
+   * ensure it is built.
+   */
+  protected async ensureEdgeFunction(_pathname: string) {}
+
+  /**
+   * Checks if an Edge Function exists in the provided pathname. For this it
+   * will try to get the path by checking the Edge Manifest under the covers.
+   * This method is replaced in the dev server to check the filesystem.
+   */
+  protected async hasEdgeFunction(pathname: string): Promise<boolean> {
+    let found = false
+
+    try {
+      found = !!(await getEdgeFunctionPath(
+        pathname,
+        this.distDir,
+        this._isLikeServerless,
+        this.renderOpts.dev
+      ))
+    } catch (_) {}
+
+    return found
+  }
+
+  /**
+   * For the given request, this function will run all edge functions
+   * collecting all effects. Each function will run with the original
+   * request data and next.js produced metadata.
+   */
+  protected async runEdgeFunctions({
+    request,
+    url,
+    preflight,
+  }: {
+    request: IncomingMessage
+    url: UrlWithParsedQuery
+    preflight: boolean
+  }) {
+    if (!this.edgeFunctions) {
+      return false
+    }
+
+    const headers = request.headers
+    const method = request.method
+
+    let pathname = url.pathname || '/'
+    let params: { [key: string]: string } = {}
+    let page: string | undefined
+
+    /**
+     * Attempt to find the page in the filesystem or as a match for
+     * dynamic routes. This allows to hint the middleware with next
+     * metadata.
+     */
+    if (await this.hasPage(pathname)) {
+      page = pathname
+    } else if (this.dynamicRoutes) {
+      for (const dynamicRoute of this.dynamicRoutes) {
+        const matchParams = dynamicRoute.match(pathname)
+        if (matchParams) {
+          page = dynamicRoute.page
+          params = matchParams
+          break
+        }
+      }
+    }
+
+    /**
+     * At this point we expect to have locale information in the query
+     * and a parsed pathname. We use this metadata to rebuilt the
+     * original pathname and to pass it to the middleware.
+     */
+    const { __nextDefaultLocale, __nextLocale, ...query } = url.query
+
+    let effects: Effects | false = false
+
+    /**
+     * Run all edge functions in a row until there is an effect that does
+     * not need to be propagated. Then accumulate the effects for each
+     * iteration combining headers.
+     */
+    for (const edgeFunction of this.edgeFunctions) {
+      if (edgeFunction.match(url.pathname)) {
+        const prevEffects: Effects | false = effects
+
+        effects = await this.runEdgeFunction({
+          edgeFunction,
+          headers,
+          method,
+          url: {
+            ...url,
+            basePath: this.nextConfig.basePath,
+            defaultLocale: __nextDefaultLocale as string,
+            locale: __nextLocale as string,
+            page,
+            params,
+            pathname,
+            preflight,
+            query,
+          },
+        })
+
+        if (effects) {
+          if (prevEffects) {
+            effects.headers = { ...prevEffects.headers, ...effects.headers }
+          }
+
+          if (effects.rewrite || effects.redirect) {
+            break
+          }
+        }
+
+        effects = effects || prevEffects
+      }
+    }
+
+    return effects
+  }
+
+  /**
+   * Allows to run a given Edge Function with the provided headers, method,
+   * url and metadata. It will do it if the function is found ensuring that
+   * it is built. Then it invokes the function returning the effects.
+   */
+  protected async runEdgeFunction(opts: {
+    edgeFunction: EdgeFunction
+    headers: { [key: string]: undefined | string | string[] }
+    method: string | undefined
+    url: NextEdgeUrl
+  }) {
+    if (!(await this.hasEdgeFunction(opts.edgeFunction.page))) {
+      console.warn(
+        `The Edge Function for ${opts.edgeFunction.page} was not found`
+      )
+      return false
+    }
+
+    await this.ensureEdgeFunction(opts.edgeFunction.page)
+
+    let builtPagePath: string
+
+    try {
+      builtPagePath = await getEdgeFunctionPath(
+        opts.edgeFunction.page,
+        this.distDir,
+        this._isLikeServerless,
+        this.renderOpts.dev
+      )
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return false
+      }
+      throw err
+    }
+
+    const pageModule = interopDefault(require(builtPagePath))
+    return pageModule({
+      req: {
+        headers: opts.headers,
+        method: opts.method,
+        url: opts.url,
+      },
+    })
+  }
+
   protected generateRoutes(): {
     basePath: string
     headers: Route[]
@@ -643,6 +853,7 @@ export default class Server {
     fsRoutes: Route[]
     redirects: Route[]
     catchAllRoute: Route
+    catchAllEdgeFunctions: Route
     pageChecker: PageChecker
     useFileSystemPublicRoutes: boolean
     dynamicRoutes: DynamicRoutes | undefined
@@ -797,6 +1008,90 @@ export default class Server {
           ),
       },
       {
+        match: route('/_next/preflight/:path*'),
+        type: 'route',
+        name: '_next/preflight catchall',
+        fn: async (req, res, params, parsed) => {
+          if (!params.path || params.path[0] !== this.buildId) {
+            await this.render404(req, res, parsed)
+            return {
+              finished: true,
+            }
+          }
+
+          // remove buildId from URL
+          params.path.shift()
+
+          // show 404 if it doesn't end with .json
+          if (!params.path[params.path.length - 1].endsWith('.json')) {
+            await this.render404(req, res, parsed)
+            return {
+              finished: true,
+            }
+          }
+
+          let pathname = getRouteFromAssetPath(
+            `/${params.path.join('/')}`,
+            '.json'
+          )
+
+          if (this.nextConfig.i18n) {
+            const { host } = req?.headers || {}
+            const hostname = host?.split(':')[0].toLowerCase()
+            const localePathResult = normalizeLocalePath(
+              pathname,
+              this.nextConfig.i18n.locales
+            )
+            const { defaultLocale } =
+              detectDomainLocale(this.nextConfig.i18n.domains, hostname) || {}
+
+            let detectedLocale = ''
+
+            if (localePathResult.detectedLocale) {
+              pathname = localePathResult.pathname
+              detectedLocale = localePathResult.detectedLocale
+            }
+
+            parsed.query.__nextLocale = detectedLocale!
+            parsed.query.__nextDefaultLocale =
+              defaultLocale || this.nextConfig.i18n.defaultLocale
+
+            if (!detectedLocale) {
+              parsed.query.__nextLocale = parsed.query.__nextDefaultLocale
+              await this.render404(req, res, parsed)
+              return { finished: true }
+            }
+          }
+
+          const effects = await this.runEdgeFunctions({
+            preflight: true,
+            request: req,
+            url: { ...parsed, pathname },
+          })
+
+          if (effects) {
+            if (effects.headers) {
+              for (const [key, value] of Object.entries(effects.headers)) {
+                res.setHeader(key, value)
+              }
+            }
+
+            sendPayload(req, res, JSON.stringify(effects), 'json', {
+              generateEtags: false,
+              poweredByHeader: true,
+            })
+
+            return {
+              finished: true,
+            }
+          }
+
+          return {
+            finished: false,
+          }
+        },
+      },
+      {
         match: route('/_next/:path*'),
         type: 'route',
         name: '_next catchall',
@@ -874,6 +1169,44 @@ export default class Server {
       }
     }
 
+    const catchAllEdgeFunctions: Route = {
+      match: route('/:path*'),
+      type: 'route',
+      name: 'catchall for edge functions',
+      fn: async (req, res, params, parsed) => {
+        const effects = await this.runEdgeFunctions({
+          request: req,
+          url: parsed,
+          preflight: false,
+        })
+
+        if (effects) {
+          if (effects.headers) {
+            for (const [key, value] of Object.entries(effects.headers)) {
+              res.setHeader(key, value)
+            }
+          }
+
+          if (effects.redirect) {
+            return getRedirectHandler({
+              statusCode: effects.redirect.status,
+              destination: effects.redirect.location,
+            }).call(this, req, res, params, parsed)
+          }
+
+          if (effects.rewrite) {
+            return getRewriteHandler({
+              destination: effects.rewrite.destination,
+            }).call(this, req, res, params, parsed)
+          }
+        }
+
+        return {
+          finished: false,
+        }
+      },
+    }
+
     const catchAllRoute: Route = {
       match: route('/:path*'),
       type: 'route',
@@ -943,6 +1276,7 @@ export default class Server {
 
     if (useFileSystemPublicRoutes) {
       this.dynamicRoutes = this.getDynamicRoutes()
+      this.edgeFunctions = this.getEdgeFunctions()
     }
 
     return {
@@ -955,6 +1289,7 @@ export default class Server {
       },
       redirects,
       catchAllRoute,
+      catchAllEdgeFunctions,
       useFileSystemPublicRoutes,
       dynamicRoutes: this.dynamicRoutes,
       basePath: this.nextConfig.basePath,
