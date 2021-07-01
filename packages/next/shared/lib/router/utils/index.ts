@@ -1,3 +1,4 @@
+export { getEdgeFunctionRegex } from './get-edge-function-regex'
 export { getRouteMatcher } from './route-matcher'
 export { getRouteRegex } from './route-regex'
 export { getSortedRoutes } from './sorted-routes'
