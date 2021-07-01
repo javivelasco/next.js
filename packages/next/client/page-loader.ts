@@ -11,6 +11,7 @@ import { parseRelativeUrl } from '../shared/lib/router/utils/parse-relative-url'
 import { removePathTrailingSlash } from './normalize-trailing-slash'
 import createRouteLoader, {
   getClientBuildManifest,
+  getEdgeManifest,
   RouteLoader,
 } from './route-loader'
 
@@ -36,6 +37,7 @@ export default class PageLoader {
 
   private promisedSsgManifest?: Promise<ClientSsgManifest>
   private promisedDevPagesManifest?: Promise<any>
+  private promisedEdgeManifest?: Promise<string[]>
   public routeLoader: RouteLoader
 
   constructor(buildId: string, assetPrefix: string) {
@@ -56,7 +58,7 @@ export default class PageLoader {
     })
   }
 
-  getPageList() {
+  getPageList(): Promise<string[]> {
     if (process.env.NODE_ENV === 'production') {
       return getClientBuildManifest().then((manifest) => manifest.sortedPages)
     } else {
@@ -82,6 +84,37 @@ export default class PageLoader {
   }
 
   /**
+   * Get the list of Edge Function location to know it we should throw a
+   * preflight request. In production it is based on the edge manifest file
+   * while in development we use an internal endpoint so it can be updated
+   * from the Hot Reloader.
+   */
+  getEdgeFunctionsList(): Promise<string[]> {
+    if (process.env.NODE_ENV === 'production') {
+      return getEdgeManifest()
+    } else {
+      if ((window as any).__EDGE_FUNCTIONS_MANIFEST) {
+        return (window as any).__EDGE_FUNCTIONS_MANIFEST
+      } else {
+        if (!this.promisedEdgeManifest) {
+          this.promisedEdgeManifest = fetch(
+            `${this.assetPrefix}/_next/static/${this.buildId}/_devEdgeManifest.json`
+          )
+            .then((res) => res.json())
+            .then((manifest) => {
+              ;(window as any).__EDGE_FUNCTIONS_MANIFEST = manifest
+              return manifest
+            })
+            .catch((err) => {
+              console.log(`Failed to fetch _devEdgeManifest`, err)
+            })
+        }
+        return this.promisedEdgeManifest
+      }
+    }
+  }
+
+  /**
    * @param {string} href the route href (file-system path)
    * @param {string} asPath the URL as shown in browser (virtual path); used for dynamic routes
    * @returns {string}
@@ -97,7 +130,7 @@ export default class PageLoader {
     asPath: string
     ssg: boolean
     locale?: string | false
-    segment: 'edge' | 'data'
+    segment: 'preflight' | 'data'
   }): string {
     const { pathname: hrefPathname, query, search } = parseRelativeUrl(href)
     const { pathname: asPathname } = parseRelativeUrl(asPath)
