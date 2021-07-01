@@ -28,6 +28,12 @@ import { NextConfig as NextConfigType } from '../dist/server/config'
 
 export type NextConfig = NextConfigType
 
+// @ts-ignore This path is generated at build time and conflicts otherwise
+export type { EdgeResponse } from '../dist/next-server/server/edge-functions'
+
+// @ts-ignore This path is generated at build time and conflicts otherwise
+export type { EdgeResponse } from '../dist/next-server/server/edge-functions'
+
 // Extend the React types with missing properties
 declare module 'react' {
   // <html amp=""> support
