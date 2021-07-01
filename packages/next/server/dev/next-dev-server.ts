@@ -18,6 +18,7 @@ import {
   PHASE_DEVELOPMENT_SERVER,
   CLIENT_STATIC_FILES_PATH,
   DEV_CLIENT_PAGES_MANIFEST,
+  DEV_EDGE_MANIFEST,
 } from '../../shared/lib/constants'
 import {
   getRouteMatcher,
@@ -46,6 +47,7 @@ import {
   LoadComponentsReturnType,
   loadDefaultErrorComponents,
 } from '../load-components'
+import { getEdgeFunctionRegex } from '../../shared/lib/router/utils/get-edge-function-regex'
 
 if (typeof React.Suspense === 'undefined') {
   throw new Error(
@@ -194,6 +196,10 @@ export default class DevServer extends Server {
       return
     }
 
+    const regexEdgeFunction = new RegExp(
+      `\\.*(_edge.(?:${this.nextConfig.pageExtensions.join('|')}))$`
+    )
+
     const regexPageExtension = new RegExp(
       `\\.+(?:${this.nextConfig.pageExtensions.join('|')})$`
     )
@@ -218,10 +224,19 @@ export default class DevServer extends Server {
       wp.watch([], [pagesDir!], 0)
 
       wp.on('aggregated', () => {
+        const edgeFunctions = []
         const routedPages = []
         const knownFiles = wp.getTimeInfoEntries()
         for (const [fileName, { accuracy }] of knownFiles) {
           if (accuracy === undefined || !regexPageExtension.test(fileName)) {
+            continue
+          }
+
+          if (regexEdgeFunction.test(fileName)) {
+            const edgeLocation = relative(pagesDir!, fileName)
+              .replace(/\\+/g, '/')
+              .replace(regexEdgeFunction, '')
+            edgeFunctions.push(`/${edgeLocation}`)
             continue
           }
 
@@ -232,6 +247,11 @@ export default class DevServer extends Server {
 
           routedPages.push(pageName)
         }
+
+        this.edgeFunctions = getSortedRoutes(edgeFunctions).map((page) => ({
+          match: getRouteMatcher(getEdgeFunctionRegex(page)),
+          page,
+        }))
 
         try {
           // we serve a separate manifest with all pages for the client in
@@ -463,6 +483,33 @@ export default class DevServer extends Server {
     })
   }
 
+  /**
+   * This method is only used in production to get the edge functions from
+   * the manifest. In dev we don't know the files ahead of time so edge fns
+   * are populated as new files are added to the context.
+   */
+  protected getEdgeFunctions(): never[] {
+    return []
+  }
+
+  /**
+   * Make sure that an Edge Function is built for the given pathname. This is
+   * used only for dev and builds the function just as if it was a simple
+   * page.
+   */
+  protected async ensureEdgeFunction(pathname: string) {
+    return this.hotReloader!.ensurePage(getEdgeFunctionPage(pathname))
+  }
+
+  /**
+   * Checks if an Edge Function exists in the provided pathname for the dev
+   * server. It directly checks the filesystem so that we check it from the
+   * page name.
+   */
+  protected async hasEdgeFunction(pathname: string): Promise<boolean> {
+    return this.hasPage(getEdgeFunctionPage(pathname))
+  }
+
   generateRoutes() {
     const { fsRoutes, ...otherRoutes } = super.generateRoutes()
 
@@ -494,6 +541,29 @@ export default class DevServer extends Server {
           JSON.stringify({
             pages: this.sortedRoutes,
           })
+        )
+        return {
+          finished: true,
+        }
+      },
+    })
+
+    /**
+     * This route works only for development and serves the edge manifest which
+     * will be providing the required information so that the client knows
+     * what is the edge endpoint that should be invoked in each case.
+     */
+    fsRoutes.unshift({
+      match: route(
+        `/_next/${CLIENT_STATIC_FILES_PATH}/${this.buildId}/${DEV_EDGE_MANIFEST}`
+      ),
+      type: 'route',
+      name: `_next/${CLIENT_STATIC_FILES_PATH}/${this.buildId}/${DEV_EDGE_MANIFEST}`,
+      fn: async (_req, res) => {
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(
+          JSON.stringify(this.edgeFunctions?.map((edgeFn) => edgeFn.page) || [])
         )
         return {
           finished: true,
@@ -716,4 +786,14 @@ export default class DevServer extends Server {
 
     return false
   }
+}
+
+/**
+ * For a given pathname (or location of an Edge Function) this function will
+ * return the full path location of the file. This is used for cases where
+ * edge function modules behave just as pages and we need to, for example,
+ * check their existance in the filesystem.
+ */
+function getEdgeFunctionPage(pathname: string) {
+  return pathname.endsWith('/') ? `${pathname}_edge` : `${pathname}/_edge`
 }
