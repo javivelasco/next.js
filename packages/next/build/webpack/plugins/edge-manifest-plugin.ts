@@ -1,9 +1,9 @@
-import { EDGE_MANIFEST } from '../../../next-server/lib/constants'
 import {
   webpack,
   isWebpack5,
   sources,
 } from 'next/dist/compiled/webpack/webpack'
+import { EDGE_MANIFEST } from '../../../shared/lib/constants'
 
 export interface EdgeManifest {
   [page: string]: string
