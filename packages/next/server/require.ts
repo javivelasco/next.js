@@ -1,6 +1,7 @@
 import { promises } from 'fs'
 import { join } from 'path'
 import {
+  EDGE_MANIFEST,
   PAGES_MANIFEST,
   SERVER_DIRECTORY,
   SERVERLESS_DIRECTORY,
@@ -75,4 +76,36 @@ export function requireFontManifest(distDir: string, serverless: boolean) {
   )
   const fontManifest = require(join(serverBuildPath, FONT_MANIFEST))
   return fontManifest
+}
+
+/**
+ * For a given Edge Function location it will load the Edge Manifest to find
+ * the file for that location. If it is not possible to find it, it will
+ * throw an error, otherwise it returns the full path to import the module.
+ */
+export function getEdgeFunctionPath(
+  page: string,
+  distDir: string,
+  serverless: boolean,
+  dev?: boolean
+): string {
+  const serverBuildPath = join(
+    distDir,
+    serverless && !dev ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
+  )
+
+  const edgeManifest = require(join(serverBuildPath, EDGE_MANIFEST))
+
+  try {
+    page = denormalizePagePath(normalizePagePath(page))
+  } catch (err) {
+    throw pageNotFoundError(page)
+  }
+
+  let pagePath = edgeManifest[page]
+  if (!pagePath) {
+    throw pageNotFoundError(page)
+  }
+
+  return join(serverBuildPath, pagePath)
 }
