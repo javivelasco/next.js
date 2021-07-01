@@ -14,7 +14,7 @@ export default function nextEdgeLoader(this: any) {
   const stringifiedAbsolutePagePath = JSON.stringify(absolutePagePath)
 
   return `
-        import { middlewareAdapter } from 'next/dist/next-server/server/edge-functions'
+        import { middlewareAdapter } from 'next/dist/server/edge-functions'
         const handler = require(${stringifiedAbsolutePagePath}).onEdgeRequest
 
         export default function (opts) {
