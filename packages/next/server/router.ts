@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'http'
 import { UrlWithParsedQuery } from 'url'
+import type { ParsedUrlQuery } from 'querystring'
 
 import pathMatch from '../shared/lib/router/utils/path-match'
 import { removePathTrailingSlash } from '../client/normalize-trailing-slash'
@@ -16,7 +17,7 @@ export type RouteMatch = (pathname: string | null | undefined) => false | Params
 type RouteResult = {
   finished: boolean
   pathname?: string
-  query?: { [key: string]: string | string[] }
+  query?: ParsedUrlQuery
 }
 
 export type Route = {
