@@ -862,7 +862,10 @@ export default async function getBaseWebpackConfig(
         : splitChunksConfig,
       runtimeChunk: isServer
         ? isWebpack5 && !isLikeServerless
-          ? { name: 'webpack-runtime' }
+          ? {
+              name: ({ name }) =>
+                name.endsWith('_edge') ? undefined : 'webpack-runtime',
+            }
           : undefined
         : { name: CLIENT_STATIC_FILES_RUNTIME_WEBPACK },
       minimize: !(dev || isServer),
