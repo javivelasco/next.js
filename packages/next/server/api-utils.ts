@@ -568,3 +568,26 @@ export function setLazyProp<T>(
     },
   })
 }
+
+/**
+ * Transforms the IncomingMessage headers which can contain undefined
+ * values and arrays into a dictionary of strings that can be used to
+ * build the WHATWG Headers.
+ *
+ * @param iHeaders Incoming Request Headers
+ * @returns The headers as a dictionary of strings
+ */
+export function toWHATWGLikeHeaders(iHeaders: IncomingMessage['headers']) {
+  const headers: { [k: string]: string } = {}
+
+  for (let headerKey in iHeaders) {
+    const headerValue = iHeaders[headerKey]
+    if (Array.isArray(headerValue)) {
+      headers[headerKey] = headerValue.join('; ')
+    } else if (headerValue) {
+      headers[headerKey] = String(headerValue)
+    }
+  }
+
+  return headers
+}
