@@ -1,3 +1,4 @@
+import 'web-streams-polyfill'
 import compression from 'next/dist/compiled/compression'
 import fs from 'fs'
 import chalk from 'chalk'
@@ -27,10 +28,12 @@ import {
   PERMANENT_REDIRECT_STATUS,
   PRERENDER_MANIFEST,
   ROUTES_MANIFEST,
-  SERVERLESS_DIRECTORY,
   SERVER_DIRECTORY,
+  SERVERLESS_DIRECTORY,
   STATIC_STATUS_PAGES,
   TEMPORARY_REDIRECT_STATUS,
+  VERCEL_EDGE_NEXT_HEADER,
+  VERCEL_EDGE_REWRITE_HEADER,
 } from '../shared/lib/constants'
 import {
   getEdgeFunctionRegex,
@@ -50,6 +53,7 @@ import {
   apiResolver,
   setLazyProp,
   getCookieParser,
+  toWHATWGLikeHeaders,
   tryGetPreviewData,
   __ApiPreviewProps,
 } from './api-utils'
@@ -100,8 +104,9 @@ import cookie from 'next/dist/compiled/cookie'
 import escapePathDelimiters from '../shared/lib/router/utils/escape-path-delimiters'
 import { getUtils } from '../build/webpack/loaders/next-serverless-loader/utils'
 import { PreviewData } from 'next/types'
-import { NextEdgeUrl, Effects } from './edge-functions'
-import { EdgeManifest } from '../build/webpack/plugins/edge-manifest-plugin'
+import type { NextEdgeFunction } from './edge-functions/types'
+import type { EdgeFunctionResult, NextEdgeUrl } from './edge-functions'
+import type { EdgeManifest } from '../build/webpack/plugins/edge-manifest-plugin'
 
 const getCustomRouteMatcher = pathMatch(true)
 
@@ -710,21 +715,26 @@ export default class Server {
     request,
     url,
     preflight,
+    prevCalls = 0,
   }: {
+    prevCalls?: number
     request: IncomingMessage
     url: UrlWithParsedQuery
     preflight: boolean
-  }) {
-    if (!this.edgeFunctions) {
-      return false
+  }): Promise<undefined | EdgeFunctionResult> {
+    if (prevCalls > 5) {
+      throw new Error('Too many Edge Function recursive calls')
     }
 
-    const headers = request.headers
-    const method = request.method
+    if (!this.edgeFunctions) {
+      return undefined
+    }
 
+    let calls = prevCalls
     let pathname = url.pathname || '/'
     let params: { [key: string]: string } = {}
     let page: string | undefined
+    let result: EdgeFunctionResult | undefined
 
     /**
      * Attempt to find the page in the filesystem or as a match for
@@ -744,74 +754,113 @@ export default class Server {
       }
     }
 
-    /**
-     * At this point we expect to have locale information in the query
-     * and a parsed pathname. We use this metadata to rebuilt the
-     * original pathname and to pass it to the middleware.
-     */
+    // Extract internal query items
     const { __nextDefaultLocale, __nextLocale, ...query } = url.query
 
-    let effects: Effects | false = false
-
-    /**
-     * Run all edge functions in a row until there is an effect that does
-     * not need to be propagated. Then accumulate the effects for each
-     * iteration combining headers.
-     */
+    // Run all edge function accumulating requests until one shorcuts
     for (const edgeFunction of this.edgeFunctions) {
       if (edgeFunction.match(url.pathname)) {
-        const prevEffects: Effects | false = effects
+        // Removed so that the next Edge Function doesn't collide
+        result?.response.headers.delete(VERCEL_EDGE_NEXT_HEADER)
 
-        effects = await this.runEdgeFunction({
+        result = await this.runEdgeFunction({
           edgeFunction,
-          headers,
-          method,
-          url: {
-            ...url,
-            basePath: this.nextConfig.basePath,
-            defaultLocale: __nextDefaultLocale as string,
-            locale: __nextLocale as string,
-            page,
-            params,
-            pathname,
-            preflight,
-            query,
+          request: {
+            headers: request.headers,
+            method: request.method,
+            url: {
+              ...url,
+              basePath: this.nextConfig.basePath,
+              defaultLocale: __nextDefaultLocale as string,
+              locale: __nextLocale as string,
+              page,
+              params,
+              pathname,
+              preflight,
+              query,
+            },
+          },
+          response: {
+            headers: result?.response.headers,
           },
         })
 
-        if (effects) {
-          if (prevEffects) {
-            effects.headers = { ...prevEffects.headers, ...effects.headers }
-          }
+        // Accumulate the number of calls to control infinite loops
+        calls += 1
 
-          if (effects.rewrite || effects.redirect) {
-            break
-          }
+        if (!result) {
+          console.warn(`No edge function "${edgeFunction}" found`)
+          continue
         }
 
-        effects = effects || prevEffects
+        /**
+         * When the Edge Function intercepts we will check if there is
+         * a rewrite to an internal path. In such cases we will run the
+         * function again to look ahead further rewrites.
+         */
+        if (!result.response.headers.has(VERCEL_EDGE_NEXT_HEADER)) {
+          const rewrite = result.response.headers.get(
+            VERCEL_EDGE_REWRITE_HEADER
+          )
+          if (rewrite?.startsWith('/')) {
+            const { newUrl } = prepareDestination(
+              rewrite,
+              params,
+              url.query,
+              true
+            )
+
+            // Skip it for identity
+            if (newUrl !== pathname) {
+              if (this.edgeFunctions.some((fn) => fn.match(newUrl))) {
+                const nextResult = await this.runEdgeFunctions({
+                  preflight,
+                  prevCalls: calls,
+                  request,
+                  url: { ...url, pathname: newUrl },
+                })
+
+                // If the next call writes in the response we must shorcut
+                if (
+                  !nextResult?.response.headers.get(VERCEL_EDGE_NEXT_HEADER)
+                ) {
+                  return nextResult
+                }
+              }
+            }
+          }
+
+          result.response.headers.set('x-vercel-functions', `${calls}`)
+          return result
+        }
       }
     }
 
-    return effects
+    result?.response.headers.set('x-vercel-functions', `${calls}`)
+    return result
   }
 
   /**
-   * Allows to run a given Edge Function with the provided headers, method,
-   * url and metadata. It will do it if the function is found ensuring that
-   * it is built. Then it invokes the function returning the effects.
+   * Allows to run a given Edge Function with the provided request and
+   * response data. It will do it if the function is found ensuring that
+   * it is built.
    */
   protected async runEdgeFunction(opts: {
     edgeFunction: EdgeFunction
-    headers: { [key: string]: undefined | string | string[] }
-    method: string | undefined
-    url: NextEdgeUrl
-  }) {
+    request: {
+      headers: { [key: string]: undefined | string | string[] }
+      method: string | undefined
+      url: NextEdgeUrl
+    }
+    response: {
+      headers?: Headers
+    }
+  }): Promise<undefined | EdgeFunctionResult> {
     if (!(await this.hasEdgeFunction(opts.edgeFunction.page))) {
       console.warn(
         `The Edge Function for ${opts.edgeFunction.page} was not found`
       )
-      return false
+      return undefined
     }
 
     await this.ensureEdgeFunction(opts.edgeFunction.page)
@@ -827,18 +876,19 @@ export default class Server {
       )
     } catch (err) {
       if (err.code === 'ENOENT') {
-        return false
+        return undefined
       }
       throw err
     }
 
-    const pageModule = interopDefault(require(builtPagePath))
-    return pageModule({
-      req: {
-        headers: opts.headers,
-        method: opts.method,
-        url: opts.url,
+    const edgeFn: NextEdgeFunction = interopDefault(require(builtPagePath))
+    return edgeFn({
+      request: {
+        headers: new Headers(toWHATWGLikeHeaders(opts.request.headers)),
+        method: opts.request.method || 'GET',
+        url: opts.request.url,
       },
+      response: opts.response,
     })
   }
 
@@ -1063,31 +1113,27 @@ export default class Server {
             }
           }
 
-          const effects = await this.runEdgeFunctions({
+          const result = await this.runEdgeFunctions({
             preflight: true,
             request: req,
             url: { ...parsed, pathname },
           })
 
-          if (effects) {
-            if (effects.headers) {
-              for (const [key, value] of Object.entries(effects.headers)) {
-                res.setHeader(key, value)
-              }
-            }
-
-            sendPayload(req, res, JSON.stringify(effects), 'json', {
-              generateEtags: false,
-              poweredByHeader: true,
-            })
-
-            return {
-              finished: true,
+          /**
+           * On preflight we just need to copy the headers. All cookie effects
+           * will take place and rewrites and redirects are fixed in the
+           * headers as well.
+           */
+          if (result) {
+            for (const [key, value] of result.response.headers.entries()) {
+              res.setHeader(key, value)
             }
           }
 
+          res.end()
+
           return {
-            finished: false,
+            finished: true,
           }
         },
       },
@@ -1174,30 +1220,52 @@ export default class Server {
       type: 'route',
       name: 'catchall for edge functions',
       fn: async (req, res, params, parsed) => {
-        const effects = await this.runEdgeFunctions({
+        const result = await this.runEdgeFunctions({
           request: req,
           url: parsed,
           preflight: false,
         })
 
-        if (effects) {
-          if (effects.headers) {
-            for (const [key, value] of Object.entries(effects.headers)) {
-              res.setHeader(key, value)
+        if (result) {
+          for (const [key, value] of result.response.headers.entries()) {
+            res.setHeader(key, value)
+          }
+
+          if (result.event === 'streaming') {
+            const reader = result.response.readable.getReader()
+            res.writeHead(res.statusCode)
+
+            while (true) {
+              let { value, done } = await reader.read()
+              if (done) break
+              res.write(value)
             }
+
+            res.end()
+            return { finished: true }
           }
 
-          if (effects.redirect) {
+          const location = result.response.headers.get('Location')
+          if (location) {
             return getRedirectHandler({
-              statusCode: effects.redirect.status,
-              destination: effects.redirect.location,
+              statusCode: result.response.statusCode,
+              destination: location,
             }).call(this, req, res, params, parsed)
           }
 
-          if (effects.rewrite) {
+          const rewrite = result.response.headers.get(
+            VERCEL_EDGE_REWRITE_HEADER
+          )
+          if (rewrite) {
             return getRewriteHandler({
-              destination: effects.rewrite.destination,
+              destination: rewrite,
             }).call(this, req, res, params, parsed)
+          }
+
+          // This should come after checking rewrite and redirect
+          if (result.event === 'data') {
+            res.end(result.response.body)
+            return { finished: true }
           }
         }
 
