@@ -60,9 +60,9 @@ interface NextHistoryState {
 }
 
 interface PreflightData {
-  headers?: { [key: string]: string }
-  redirect?: { status: number; location: string }
-  rewrite?: { destination: string }
+  next?: string | null
+  redirect?: string | null
+  rewrite?: string | null
 }
 
 type HistoryState =
@@ -1029,22 +1029,32 @@ export default class Router implements BaseRouter {
       }
     }
 
-    const effects = await this._preflightRequest({ pathname, query, as, pages })
-    if (effects) {
-      if (effects.type === 'rewrite' && effects.resolvedHref) {
-        pathname = effects.resolvedHref
-        parsed.pathname = pathname
-        url = formatWithValidation(parsed)
-      }
+    if (!shallow) {
+      const effects = await this._preflightRequest({
+        pathname,
+        query,
+        as,
+        pages,
+      })
+      if (typeof effects !== 'undefined') {
+        if (effects.type !== 'next') {
+          if (effects.type === 'rewrite' && effects.resolvedHref) {
+            pathname = effects.resolvedHref
+            parsed.pathname = pathname
+            url = formatWithValidation(parsed)
+          } else if (effects.type === 'redirect') {
+            if (effects.destination) {
+              window.location.href = effects.destination
+              return new Promise(() => {})
+            }
 
-      if (effects.type === 'redirect') {
-        if (effects.destination) {
-          window.location.href = effects.destination
-          return new Promise(() => {})
-        }
-
-        if (effects.newAs) {
-          return this.change(method, effects.newUrl, effects.newAs, options)
+            if (effects.newAs) {
+              return this.change(method, effects.newUrl, effects.newAs, options)
+            }
+          } else {
+            window.location.href = as
+            return new Promise(() => {})
+          }
         }
       }
     }
@@ -1671,11 +1681,11 @@ export default class Router implements BaseRouter {
       segment: 'preflight',
     })
 
-    const preflightData = await this._getPreflightData(edgeHref, options.cache)
+    const preflight = await this._getPreflightData(edgeHref, options.cache)
 
-    if (preflightData.rewrite) {
+    if (preflight.rewrite?.startsWith('/')) {
       const destRes = prepareDestination(
-        preflightData.rewrite.destination,
+        preflight.rewrite,
         {},
         options.query,
         false
@@ -1713,9 +1723,9 @@ export default class Router implements BaseRouter {
       }
     }
 
-    if (preflightData.redirect) {
-      if (preflightData.redirect.location.startsWith('/')) {
-        const parsedHref = parseRelativeUrl(preflightData.redirect.location)
+    if (preflight.redirect) {
+      if (preflight.redirect.startsWith('/')) {
+        const parsedHref = parseRelativeUrl(preflight.redirect)
         parsedHref.pathname = resolveDynamicRoute(
           parsedHref.pathname,
           options.pages
@@ -1723,8 +1733,8 @@ export default class Router implements BaseRouter {
 
         const { url: newUrl, as: newAs } = prepareUrlAs(
           this,
-          preflightData.redirect.location,
-          preflightData.redirect.location
+          preflight.redirect,
+          preflight.redirect
         )
 
         return {
@@ -1736,15 +1746,17 @@ export default class Router implements BaseRouter {
 
       return {
         type: 'redirect',
-        destination: preflightData.redirect?.location,
+        destination: preflight.redirect,
       }
     }
 
-    /**
-     * Cookies will come in the request so we do not need to apply
-     * effects based on headers that are included in the edge.
-     */
-    return undefined
+    if (preflight.next) {
+      return {
+        type: 'next',
+      }
+    }
+
+    return {}
   }
 
   _getData<T>(fn: () => Promise<T>): Promise<T> {
@@ -1797,7 +1809,11 @@ export default class Router implements BaseRouter {
           throw new Error(`Failed to preflight request`)
         }
 
-        return res.json()
+        return {
+          next: res.headers.get('x-vercel-next'),
+          redirect: res.headers.get('Location'),
+          rewrite: res.headers.get('x-vercel-rewrite'),
+        }
       })
       .then((data) => {
         if (shouldCache) {
