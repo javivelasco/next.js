@@ -38,7 +38,6 @@ export async function adapter(params: {
 
     function next() {
       if (res.finished) {
-        console.warn('WARN: Calling next after the request is done is no-op.')
         return
       }
 
