@@ -20,10 +20,7 @@ function getCookieFromResponse(res, cookieName) {
   }
   return -1
 }
-/*
- * - Each of these should be checking for the x-vercel-functions header to make sure it's the right amount
- * - Internationalization needs to be figured out.
- */
+
 describe('Edge middleware tests', () => {
   beforeAll(async () => {
     context.appPort = await findPort()

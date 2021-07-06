@@ -1,9 +1,3 @@
-/*
- * One of the effects of the Edge middleware is adding headers to
- * the request. Here, all requests should have a new header 'foo'
- * with value 'bar'.
- */
-
 export function onEdgeRequest(
   req,
   res,
@@ -11,10 +5,12 @@ export function onEdgeRequest(
     return
   }
 ) {
+  // Redirects users to another page
   if (req.url.pathname === '/rewrite-me-to-about') {
     res.rewrite('/about')
   }
 
+  // Rewrites user to a page that then streams a response
   if (req.url.pathname === '/rewrite-me-to-about-with-chained-sequence') {
     res.rewrite('/about-with-chained-sequence')
   }
@@ -24,12 +20,14 @@ export function onEdgeRequest(
     res.end()
   }
 
+  // Streams a response to the user
   if (req.url.pathname === '/stream-response') {
     res.write('this is a streamed ')
     res.write('response')
     res.end()
   }
 
+  // Rewrites a user to an external domain
   if (req.url.pathname === '/rewrite-me-to-vercel') {
     res.rewrite('https://vercel.com')
   }
