@@ -15,12 +15,12 @@ export default function nextEdgeLoader(this: any) {
 
   return `
         import { adapter } from 'next/dist/server/edge-functions'
-        const handler = require(${stringifiedAbsolutePagePath}).onEdgeRequest
+        import { onEdgeRequest } from ${stringifiedAbsolutePagePath}
 
-        export default function (opts) {
+        export default function edgeFunction (opts) {
             return adapter({
                 ...opts,
-                handler
+                handler: onEdgeRequest
             })
         }
     `

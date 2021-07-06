@@ -857,41 +857,44 @@ export default async function getBaseWebpackConfig(
                 request,
                 dependencyType,
                 getResolve,
+                contextInfo,
               }: {
                 context: string
                 request: string
                 dependencyType: string
+                contextInfo: {
+                  compiler: string
+                  issuer: string
+                  issuerLayer: string | null
+                }
                 getResolve: (
                   options: any
                 ) => (
                   resolveContext: string,
-                  resolveRequest: string,
-                  callback: (
-                    err?: Error,
-                    result?: string,
-                    resolveData?: { descriptionFileData?: { type?: any } }
-                  ) => void
-                ) => void
+                  resolveRequest: string
+                ) => Promise<string>
               }) =>
-                handleExternals(context, request, dependencyType, (options) => {
-                  const resolveFunction = getResolve(options)
-                  return (resolveContext: string, requestToResolve: string) =>
-                    new Promise((resolve, reject) => {
-                      resolveFunction(
-                        resolveContext,
-                        requestToResolve,
-                        (err, result, resolveData) => {
-                          if (err) return reject(err)
-                          if (!result) return resolve([null, false])
-                          const isEsm = /\.js$/i.test(result)
-                            ? resolveData?.descriptionFileData?.type ===
-                              'module'
-                            : /\.mjs$/i.test(result)
-                          resolve([result, isEsm])
-                        }
-                      )
-                    })
-                })
+                contextInfo.issuerLayer !== 'edge'
+                  ? handleExternals(context, request, dependencyType, (options) => {
+                    const resolveFunction = getResolve(options)
+                    return (resolveContext: string, requestToResolve: string) =>
+                      new Promise((resolve, reject) => {
+                        resolveFunction(
+                          resolveContext,
+                          requestToResolve,
+                          (err, result, resolveData) => {
+                            if (err) return reject(err)
+                            if (!result) return resolve([null, false])
+                            const isEsm = /\.js$/i.test(result)
+                              ? resolveData?.descriptionFileData?.type ===
+                                'module'
+                              : /\.mjs$/i.test(result)
+                            resolve([result, isEsm])
+                          }
+                        )
+                      })
+                  })
+                  : Promise.resolve()
             : (
                 context: string,
                 request: string,
@@ -1348,6 +1351,13 @@ export default async function getBaseWebpackConfig(
   if (isWebpack5) {
     // futureEmitAssets is on by default in webpack 5
     delete webpackConfig.output?.futureEmitAssets
+
+    if (isServer) {
+      /** @ts-ignore Remove once Webpack types are updated */
+      webpackConfig.experiments = {
+        layers: true,
+      }
+    }
 
     if (isServer && dev) {
       // Enable building of client compilation before server compilation in development
