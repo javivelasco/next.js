@@ -1546,7 +1546,12 @@ export default async function build(
      * Generate a version of the EdgeManifest that will be loaded by the
      * client in a deferred script.
      */
-    await generateClientEdgeManifest(edgeManifest, distDir, buildId)
+    writeFileSync(
+      path.join(distDir, CLIENT_STATIC_FILES_PATH, buildId, '_edgeManifest.js'),
+      `self.__EDGE_MANIFEST=${devalue(
+        Object.keys(edgeManifest)
+      )};self.__EDGE_MANIFEST_CB&&self.__EDGE_MANIFEST_CB()`
+    )
 
     const images = { ...config.images }
     const { deviceSizes, imageSizes } = images
@@ -1639,21 +1644,6 @@ function generateClientSsgManifest(
 
   writeFileSync(
     path.join(distDir, CLIENT_STATIC_FILES_PATH, buildId, '_ssgManifest.js'),
-    clientSsgManifestContent
-  )
-}
-
-function generateClientEdgeManifest(
-  edgeManifest: EdgeManifest,
-  buildId: string,
-  distDir: string
-) {
-  const clientSsgManifestContent = `self.__EDGE_MANIFEST=${devalue(
-    Object.keys(edgeManifest)
-  )};self.__EDGE_MANIFEST_CB&&self.__EDGE_MANIFEST_CB()`
-
-  writeFileSync(
-    path.join(distDir, CLIENT_STATIC_FILES_PATH, buildId, '_edgeManifest.js'),
     clientSsgManifestContent
   )
 }
