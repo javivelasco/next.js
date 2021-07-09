@@ -4,7 +4,6 @@ import {
   sources,
 } from 'next/dist/compiled/webpack/webpack'
 import { EDGE_MANIFEST } from '../../../shared/lib/constants'
-import { string } from 'prop-types'
 
 export interface EdgeManifestItem {
   page: string
