@@ -4,12 +4,18 @@ import {
   sources,
 } from 'next/dist/compiled/webpack/webpack'
 import { EDGE_MANIFEST } from '../../../shared/lib/constants'
+import { getEdgeFunctionRegex } from '../../../shared/lib/router/utils'
 
-export interface EdgeManifestItem {
-  page: string
-  file: string
+export type EdgeManifest = {
+  version: 1
+  edgeFunctions: {
+    [page: string]: {
+      file: string
+      page: string
+      regexp: string
+    }
+  }
 }
-export interface EdgeManifest extends Array<EdgeManifestItem> {}
 
 export default class EdgeManifestPlugin {
   dev: boolean
@@ -20,7 +26,10 @@ export default class EdgeManifestPlugin {
 
   createAssets(compilation: any, assets: any) {
     const entrypoints = compilation.entrypoints
-    const edgeFunctions: EdgeManifest = []
+    const edgeManifest: EdgeManifest = {
+      edgeFunctions: {},
+      version: 1,
+    }
 
     for (const entrypoint of entrypoints.values()) {
       const location = getEdgeFunctionFromEntrypoint(entrypoint.name)
@@ -42,21 +51,27 @@ export default class EdgeManifestPlugin {
         )
         continue
       }
-      const edgeFunctionItem: EdgeManifestItem = {
-        page: location,
+
+      edgeManifest.edgeFunctions[location] = {
         file: files[files.length - 1],
+        page: location,
+        regexp: getEdgeFunctionRegex(location).namedRegex!,
       }
 
       if (isWebpack5 && !this.dev) {
-        edgeFunctionItem['page'] = edgeFunctionItem['page'].slice(3)
+        edgeManifest.edgeFunctions[location].file = edgeManifest.edgeFunctions[
+          location
+        ].file.slice(3)
       }
-      edgeFunctionItem['page'] = edgeFunctionItem['page'].replace(/\\/g, '/')
-      edgeFunctions.push(edgeFunctionItem)
+
+      edgeManifest.edgeFunctions[location].file = edgeManifest.edgeFunctions[
+        location
+      ].file.replace(/\\/g, '/')
     }
 
     assets[
       `${isWebpack5 && !this.dev ? '../' : ''}` + EDGE_MANIFEST
-    ] = new sources.RawSource(JSON.stringify(edgeFunctions, null, 2))
+    ] = new sources.RawSource(JSON.stringify(edgeManifest, null, 2))
   }
 
   apply(compiler: webpack.Compiler) {
