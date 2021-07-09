@@ -4,10 +4,13 @@ import {
   sources,
 } from 'next/dist/compiled/webpack/webpack'
 import { EDGE_MANIFEST } from '../../../shared/lib/constants'
+import { string } from 'prop-types'
 
-export interface EdgeManifest {
-  [page: string]: string
+export interface EdgeManifestItem {
+  page: string
+  file: string
 }
+export interface EdgeManifest extends Array<EdgeManifestItem> {}
 
 export default class EdgeManifestPlugin {
   dev: boolean
@@ -18,7 +21,7 @@ export default class EdgeManifestPlugin {
 
   createAssets(compilation: any, assets: any) {
     const entrypoints = compilation.entrypoints
-    const edgeFunctions: EdgeManifest = {}
+    const edgeFunctions: EdgeManifest = []
 
     for (const entrypoint of entrypoints.values()) {
       const location = getEdgeFunctionFromEntrypoint(entrypoint.name)
@@ -40,13 +43,16 @@ export default class EdgeManifestPlugin {
         )
         continue
       }
-
-      edgeFunctions[location] = files[files.length - 1]
-      if (isWebpack5 && !this.dev) {
-        edgeFunctions[location] = edgeFunctions[location].slice(3)
+      const edgeFunctionItem: EdgeManifestItem = {
+        page: location,
+        file: files[files.length - 1],
       }
 
-      edgeFunctions[location] = edgeFunctions[location].replace(/\\/g, '/')
+      if (isWebpack5 && !this.dev) {
+        edgeFunctionItem['page'] = edgeFunctionItem['page'].slice(3)
+      }
+      edgeFunctionItem['page'] = edgeFunctionItem['page'].replace(/\\/g, '/')
+      edgeFunctions.push(edgeFunctionItem)
     }
 
     assets[

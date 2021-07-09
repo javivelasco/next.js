@@ -9,6 +9,10 @@ import {
 } from '../shared/lib/constants'
 import { normalizePagePath, denormalizePagePath } from './normalize-page-path'
 import { PagesManifest } from '../build/webpack/plugins/pages-manifest-plugin'
+import {
+  EdgeManifest,
+  EdgeManifestItem,
+} from '../build/webpack/plugins/edge-manifest-plugin'
 import { normalizeLocalePath } from '../shared/lib/i18n/normalize-locale-path'
 
 export function pageNotFoundError(page: string): Error {
@@ -94,7 +98,10 @@ export function getEdgeFunctionPath(
     serverless && !dev ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
   )
 
-  const edgeManifest = require(join(serverBuildPath, EDGE_MANIFEST))
+  const edgeManifest: EdgeManifest = require(join(
+    serverBuildPath,
+    EDGE_MANIFEST
+  ))
 
   try {
     page = denormalizePagePath(normalizePagePath(page))
@@ -102,10 +109,11 @@ export function getEdgeFunctionPath(
     throw pageNotFoundError(page)
   }
 
-  let pagePath = edgeManifest[page]
-  if (!pagePath) {
-    throw pageNotFoundError(page)
-  }
+  edgeManifest.forEach((edgeManifestElement) => {
+    if (edgeManifestElement['page'] === page) {
+      return join(serverBuildPath, edgeManifestElement['file'])
+    }
+  })
 
-  return join(serverBuildPath, pagePath)
+  throw pageNotFoundError(page)
 }
