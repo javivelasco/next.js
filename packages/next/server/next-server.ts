@@ -680,11 +680,10 @@ export default class Server {
    * they are mapped to a matcher.
    */
   protected getEdgeFunctions() {
-    const locations = getSortedRoutes(Object.keys(this.edgeManifest || {}))
-    return (this.edgeFunctions = locations.map((page) => ({
+    return Object.keys(this.edgeManifest?.edgeFunctions || {}).map((page) => ({
       match: getRouteMatcher(getEdgeFunctionRegex(page)),
       page,
-    })))
+    }))
   }
 
   /**
