@@ -69,6 +69,9 @@ export class EdgeResponse {
     if (!this._writer) {
       this._writer = this._output.writable.getWriter()
       this._streaming = true
+      if (!this.headersSent) {
+        this.writeHead(this.statusCode)
+      }
     }
 
     return this._writer

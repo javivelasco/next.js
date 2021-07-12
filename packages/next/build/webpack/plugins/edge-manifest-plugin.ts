@@ -4,9 +4,17 @@ import {
   sources,
 } from 'next/dist/compiled/webpack/webpack'
 import { EDGE_MANIFEST } from '../../../shared/lib/constants'
+import { getEdgeFunctionRegex } from '../../../shared/lib/router/utils'
 
-export interface EdgeManifest {
-  [page: string]: string
+export type EdgeManifest = {
+  version: 1
+  edgeFunctions: {
+    [page: string]: {
+      file: string
+      page: string
+      regexp: string
+    }
+  }
 }
 
 export default class EdgeManifestPlugin {
@@ -18,7 +26,10 @@ export default class EdgeManifestPlugin {
 
   createAssets(compilation: any, assets: any) {
     const entrypoints = compilation.entrypoints
-    const edgeFunctions: EdgeManifest = {}
+    const edgeManifest: EdgeManifest = {
+      edgeFunctions: {},
+      version: 1,
+    }
 
     for (const entrypoint of entrypoints.values()) {
       const location = getEdgeFunctionFromEntrypoint(entrypoint.name)
@@ -41,17 +52,26 @@ export default class EdgeManifestPlugin {
         continue
       }
 
-      edgeFunctions[location] = files[files.length - 1]
-      if (isWebpack5 && !this.dev) {
-        edgeFunctions[location] = edgeFunctions[location].slice(3)
+      edgeManifest.edgeFunctions[location] = {
+        file: files[files.length - 1],
+        page: location,
+        regexp: getEdgeFunctionRegex(location).namedRegex!,
       }
 
-      edgeFunctions[location] = edgeFunctions[location].replace(/\\/g, '/')
+      if (isWebpack5 && !this.dev) {
+        edgeManifest.edgeFunctions[location].file = edgeManifest.edgeFunctions[
+          location
+        ].file.slice(3)
+      }
+
+      edgeManifest.edgeFunctions[location].file = edgeManifest.edgeFunctions[
+        location
+      ].file.replace(/\\/g, '/')
     }
 
     assets[
       `${isWebpack5 && !this.dev ? '../' : ''}` + EDGE_MANIFEST
-    ] = new sources.RawSource(JSON.stringify(edgeFunctions, null, 2))
+    ] = new sources.RawSource(JSON.stringify(edgeManifest, null, 2))
   }
 
   apply(compiler: webpack.Compiler) {
