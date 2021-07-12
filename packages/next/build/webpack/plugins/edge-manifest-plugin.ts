@@ -5,9 +5,11 @@ import {
 } from 'next/dist/compiled/webpack/webpack'
 import { EDGE_MANIFEST } from '../../../shared/lib/constants'
 import { getEdgeFunctionRegex } from '../../../shared/lib/router/utils'
+import { getSortedRoutes } from '../../../shared/lib/router/utils'
 
-export type EdgeManifest = {
+export interface EdgeManifest {
   version: 1
+  sortedEdgeFunctions: string[]
   edgeFunctions: {
     [page: string]: {
       file: string
@@ -27,6 +29,7 @@ export default class EdgeManifestPlugin {
   createAssets(compilation: any, assets: any) {
     const entrypoints = compilation.entrypoints
     const edgeManifest: EdgeManifest = {
+      sortedEdgeFunctions: [],
       edgeFunctions: {},
       version: 1,
     }
@@ -68,6 +71,10 @@ export default class EdgeManifestPlugin {
         location
       ].file.replace(/\\/g, '/')
     }
+
+    edgeManifest.sortedEdgeFunctions = getSortedRoutes(
+      Object.keys(edgeManifest.edgeFunctions)
+    )
 
     assets[
       `${isWebpack5 && !this.dev ? '../' : ''}` + EDGE_MANIFEST
