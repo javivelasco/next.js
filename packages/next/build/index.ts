@@ -94,6 +94,7 @@ import { isWebpack5 } from 'next/dist/compiled/webpack/webpack'
 import { NextConfigComplete } from '../server/config-shared'
 
 const staticCheckWorker = require.resolve('./utils')
+const RESERVED_PAGE_REGEX = /(^\/(_app|_error|_document|api(\/|$))|_edge$)/
 
 export type SsgRoute = {
   initialRevalidateSeconds: number | false
@@ -395,6 +396,12 @@ export default async function build(
         namedRegex?: string
         routeKeys?: { [key: string]: string }
       }>
+      nonDynamicRoutes: Array<{
+        page: string
+        regex: string
+        namedRegex?: string
+        routeKeys?: { [key: string]: string }
+      }>
       dataRoutes: Array<{
         page: string
         routeKeys?: { [key: string]: string }
@@ -420,6 +427,19 @@ export default async function build(
       headers: headers.map((r: any) => buildCustomRoute(r, 'header')),
       dynamicRoutes: getSortedRoutes(pageKeys)
         .filter(isDynamicRoute)
+        .map((page) => {
+          const routeRegex = getRouteRegex(page)
+          return {
+            page,
+            regex: normalizeRouteRegex(routeRegex.re.source),
+            routeKeys: routeRegex.routeKeys,
+            namedRegex: routeRegex.namedRegex,
+          }
+        }),
+      nonDynamicRoutes: getSortedRoutes(pageKeys)
+        .filter(
+          (page) => !isDynamicRoute(page) && !page.match(RESERVED_PAGE_REGEX)
+        )
         .map((page) => {
           const routeRegex = getRouteRegex(page)
           return {
@@ -774,11 +794,7 @@ export default async function build(
             let isHybridAmp = false
             let ssgPageRoutes: string[] | null = null
 
-            const nonReservedPage = !page.match(
-              /(^\/(_app|_error|_document|api(\/|$))|_edge$)/
-            )
-
-            if (nonReservedPage) {
+            if (!page.match(RESERVED_PAGE_REGEX)) {
               try {
                 let isPageStaticSpan = checkPageSpan.traceChild(
                   'is-page-static'
