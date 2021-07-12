@@ -871,29 +871,42 @@ export default async function getBaseWebpackConfig(
                   options: any
                 ) => (
                   resolveContext: string,
-                  resolveRequest: string
-                ) => Promise<string>
+                  resolveRequest: string,
+                  callback: (
+                    err?: Error,
+                    result?: string,
+                    resolveData?: { descriptionFileData?: { type?: any } }
+                  ) => void
+                ) => void
               }) =>
                 contextInfo.issuerLayer !== 'edge'
-                  ? handleExternals(context, request, dependencyType, (options) => {
-                    const resolveFunction = getResolve(options)
-                    return (resolveContext: string, requestToResolve: string) =>
-                      new Promise((resolve, reject) => {
-                        resolveFunction(
-                          resolveContext,
-                          requestToResolve,
-                          (err, result, resolveData) => {
-                            if (err) return reject(err)
-                            if (!result) return resolve([null, false])
-                            const isEsm = /\.js$/i.test(result)
-                              ? resolveData?.descriptionFileData?.type ===
-                                'module'
-                              : /\.mjs$/i.test(result)
-                            resolve([result, isEsm])
-                          }
-                        )
-                      })
-                  })
+                  ? handleExternals(
+                      context,
+                      request,
+                      dependencyType,
+                      (options) => {
+                        const resolveFunction = getResolve(options)
+                        return (
+                          resolveContext: string,
+                          requestToResolve: string
+                        ) =>
+                          new Promise((resolve, reject) => {
+                            resolveFunction(
+                              resolveContext,
+                              requestToResolve,
+                              (err, result, resolveData) => {
+                                if (err) return reject(err)
+                                if (!result) return resolve([null, false])
+                                const isEsm = /\.js$/i.test(result)
+                                  ? resolveData?.descriptionFileData?.type ===
+                                    'module'
+                                  : /\.mjs$/i.test(result)
+                                resolve([result, isEsm])
+                              }
+                            )
+                          })
+                      }
+                    )
                   : Promise.resolve()
             : (
                 context: string,
