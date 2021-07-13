@@ -11,8 +11,8 @@ export function getEdgeFunctionRegex(normalizedRoute: string): RouteRegex {
     if (result.parameterizedRoute === '/') {
       return {
         groups: {},
-        namedRegex: `^/.*$`,
-        re: new RegExp('^/.*$'),
+        namedRegex: `^/(?!_next).*$`,
+        re: new RegExp('^/(?!_next).*$'),
         routeKeys: {},
       }
     }
