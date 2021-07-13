@@ -32,6 +32,55 @@ export function onEdgeRequest(
     res.rewrite('https://vercel.com')
   }
 
-  res.setHeaders({ 'x-foo': 'bar' })
+  // Streams, ends the stream, streams again
+  if (req.url.pathname === '/stream-end-stream') {
+    res.write('first stream')
+    res.end()
+    res.write('second stream')
+  }
+
+  // Ends response, adds header
+  if (req.url.pathname === '/end-headers') {
+    res.send('hello world')
+    res.end()
+    res.setHeaders({ 'x-machina': 'hello' })
+  }
+
+  // Streams some body and then sets the header
+  if (req.url.pathname === '/stream-header-end') {
+    res.setHeaders({ 'x-pre-header': '1' })
+    res.write('hello world')
+    res.end()
+    res.setHeaders({ 'x-machina': 'hello' })
+  }
+
+  // Sends some body and then sends another body
+  if (req.url.pathname === '/body-end') {
+    res.send('hello world')
+    res.end()
+    res.send('the second hello world')
+  }
+
+  // Rewrite twice
+  if (req.url.pathname === '/rewrite-header') {
+    res.rewrite('https://github.com')
+    res.rewrite('https://vercel.com')
+    res.end()
+  }
+
+  // Redirect and then send a body
+  if (req.url.pathname === '/redirect-body') {
+    res.redirect('https://google.com')
+    res.send('whoops!')
+    res.end()
+  }
+
+  // Redirect and then stream a response
+  if (req.url.pathname === '/redirect-stream') {
+    res.redirect('https://google.com')
+    res.write('whoops!')
+    res.end()
+  }
+
   next()
 }

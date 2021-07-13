@@ -48,7 +48,6 @@ function runTests() {
     } finally {
       await browser.close()
     }
-    expect(res.headers.get('x-foo')).toBe('bar')
     expect(res.headers.get('x-vercel-functions')).toBe('2')
     expect(html).toBe('this is a chained response')
   })
@@ -56,7 +55,6 @@ function runTests() {
   it('should stream a response', async () => {
     const res = await fetchViaHTTP(context.appPort, '/stream-response')
     const html = await res.text()
-    expect(res.headers.get('x-foo')).toBe('bar')
     expect(res.headers.get('x-vercel-functions')).toBe('1')
     expect(html).toBe('this is a streamed response')
   })
@@ -73,7 +71,6 @@ function runTests() {
     } finally {
       await browser.close()
     }
-    expect(res.headers.get('x-foo')).toBe('bar')
     // -1 is returned if bucket was not found in func getCookieFromResponse
     expect(bucket).not.toBe(-1)
     expect($('.title').text()).toBe(expectedText)
@@ -92,14 +89,12 @@ function runTests() {
       await browser.close()
     }
     expect($('.title').text()).toBe('About Page')
-    expect(res.headers.get('x-foo')).toBe('bar')
   })
 
   it('should append a new header', async () => {
     const res = await fetchViaHTTP(context.appPort, '/')
     const html = await res.text()
     const $ = cheerio.load(html)
-    expect(res.headers.get('x-foo')).toBe('bar')
     expect($('.title').text()).toBe('Home Page')
   })
 
@@ -107,7 +102,6 @@ function runTests() {
     const res = await fetchViaHTTP(context.appPort, '/account')
     const html = await res.text()
     const $ = cheerio.load(html)
-    expect(res.headers.get('x-foo')).toBe('bar')
     const browser = await webdriver(context.appPort, '/account')
     try {
       expect(await browser.eval(`window.location.pathname`)).toBe(
@@ -122,9 +116,7 @@ function runTests() {
   it('should rewrite to external link', async () => {
     const res = await fetchViaHTTP(context.appPort, '/rewrite-me-to-vercel')
     const html = await res.text()
-    console.log(html)
     const $ = cheerio.load(html)
-    expect(res.headers.get('x-foo')).toBe('bar')
     // const browser = await webdriver(context.appPort, '/rewrite-me-to-vercel')
     // TODO: running this to chech the window.location.pathname hangs for some reason;
     expect($('head > title').text()).toBe(
@@ -136,10 +128,69 @@ function runTests() {
     const res = await fetchViaHTTP(context.appPort, '/posts/1')
     const html = await res.text()
     const $ = cheerio.load(html)
-    expect(res.headers.get('x-foo')).toBe('bar')
     expect(res.headers.get('x-bar')).toBe('foo')
     expect(res.headers.get('x-vercel-functions')).toBe('2')
     expect(res.headers.get('x-vercel-next')).toBe('1')
     expect($('.title').text()).toBe('Post')
+  })
+
+  it('should only stream once given the stream ends', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/stream-end-stream')
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect(res.headers.get('x-vercel-functions')).toBe('1')
+    expect(html).toBe('first stream')
+  })
+
+  it('should have a body and not have a certain header', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/end-headers')
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect(res.headers.get('x-vercel-functions')).toBe('1')
+    expect(res.headers.get('x-machina')).not.toBe('hello')
+    expect(html).toBe('hello world')
+  })
+
+  it('should stream a body and not have a certain header', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/stream-header-end')
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect(res.headers.get('x-vercel-functions')).toBe('1')
+    expect(res.headers.get('x-machina')).not.toBe('hello')
+    expect(res.headers.get('x-pre-header')).toBe('1')
+    expect(html).toBe('hello world')
+  })
+
+  it('should only recieve the first body', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/body-end')
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect(res.headers.get('x-vercel-functions')).toBe('1')
+    expect(html).toBe('hello world')
+  })
+
+  it('should rewrite only once to Google', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/rewrite-header')
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect($('head > title').text()).toBe(
+      'Develop. Preview. Ship. For the best frontend teams – Vercel'
+    )
+  })
+
+  it('should redirect to Google and not send a body', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/redirect-body')
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect($('head > title').text()).toBe('Google')
+    expect(html).not.toBe('whoops!')
+  })
+
+  it('should redirect only once to Google and not stream a response', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/redirect-stream')
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect($('head > title').text()).toBe('Google')
+    expect(html).not.toBe('whoops!')
   })
 }
