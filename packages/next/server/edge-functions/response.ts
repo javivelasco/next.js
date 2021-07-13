@@ -119,6 +119,9 @@ export class EdgeResponse {
   }
 
   public setHeaders(headers?: Record<string, string>) {
+    if (this.headersSent) {
+      throw new Error('Headers were sent')
+    }
     for (let head in headers) {
       this.headers.set(head, headers[head])
     }
@@ -177,6 +180,9 @@ export class EdgeResponse {
       | null = '',
     headers?: Record<string, string>
   ): void {
+    if (this.finished) {
+      throw new Error('Response has been already been sent')
+    }
     this.setHeaders(headers)
 
     if (data instanceof ReadableStream) {
