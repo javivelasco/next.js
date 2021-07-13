@@ -777,6 +777,7 @@ export default class Server {
             method: request.method,
             url: {
               ...url,
+              calls,
               basePath: this.nextConfig.basePath,
               defaultLocale: __nextDefaultLocale as string,
               locale: __nextLocale as string,

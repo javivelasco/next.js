@@ -8,6 +8,7 @@ export type Dictionary<T = any> = {
 
 export interface NextEdgeUrl extends UrlWithParsedQuery {
   basePath?: string
+  calls: number
   defaultLocale?: string
   locale?: string
   page?: string
