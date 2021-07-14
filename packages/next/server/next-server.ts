@@ -1165,7 +1165,7 @@ export default class Server {
     const headers: Route[] = this.minimalMode
       ? []
       : this.customRoutes.headers.map((r) => ({
-          match: getCustomRouteMatcher(r.source, (regex: string) => modifyRouteRegex(regex)),
+          match: getCustomRouteMatcher(r.source, modifyRouteRegex),
           has: r.has,
           type: 'header',
           name: `header ${r.source} header route`,
@@ -1189,7 +1189,20 @@ export default class Server {
           // internal type used for validation (not user facing)
           internal: (redirect as any).internal,
           type: 'redirect',
-          match: getCustomRouteMatcher(redirect.source, !(redirect as any).internal ? (regex: string) => modifyRouteRegex(regex, ['/_next'].map((p) => this.nextConfig.basePath ? `${this.nextConfig.basePath}${p}` : p)) : undefined),
+          match: getCustomRouteMatcher(
+            redirect.source,
+            !(redirect as any).internal
+              ? (regex: string) =>
+                  modifyRouteRegex(
+                    regex,
+                    ['/_next'].map((p) =>
+                      this.nextConfig.basePath
+                        ? `${this.nextConfig.basePath}${p}`
+                        : p
+                    )
+                  )
+              : undefined
+          ),
           has: redirect.has,
           statusCode: redirect.statusCode,
           name: `Redirect route ${redirect.source}`,
@@ -1200,7 +1213,7 @@ export default class Server {
       check,
       type: 'rewrite',
       name: `Rewrite route ${rewrite.source}`,
-      match: getCustomRouteMatcher(rewrite.source, (regex: string) => modifyRouteRegex(regex)),
+      match: getCustomRouteMatcher(rewrite.source, modifyRouteRegex),
       fn: getRewriteHandler(rewrite),
     })
 
