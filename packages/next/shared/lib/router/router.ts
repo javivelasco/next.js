@@ -1036,25 +1036,24 @@ export default class Router implements BaseRouter {
         as,
         pages,
       })
-      if (typeof effects !== 'undefined') {
-        if (effects.type !== 'next') {
-          if (effects.type === 'rewrite' && effects.resolvedHref) {
-            pathname = effects.resolvedHref
-            parsed.pathname = pathname
-            url = formatWithValidation(parsed)
-          } else if (effects.type === 'redirect') {
-            if (effects.destination) {
-              window.location.href = effects.destination
-              return new Promise(() => {})
-            }
 
-            if (effects.newAs) {
-              return this.change(method, effects.newUrl, effects.newAs, options)
-            }
-          } else {
-            window.location.href = as
+      if (effects.type !== 'next') {
+        if (effects.type === 'rewrite' && effects.resolvedHref) {
+          pathname = effects.resolvedHref
+          parsed.pathname = pathname
+          url = formatWithValidation(parsed)
+        } else if (effects.type === 'redirect') {
+          if (effects.destination) {
+            window.location.href = effects.destination
             return new Promise(() => {})
           }
+
+          if (effects.newAs) {
+            return this.change(method, effects.newUrl, effects.newAs, options)
+          }
+        } else {
+          window.location.href = as
+          return new Promise(() => {})
         }
       }
     }
@@ -1411,7 +1410,7 @@ export default class Router implements BaseRouter {
       let dataHref: string | undefined
 
       if (__N_SSG || __N_SSP) {
-        dataHref = this.pageLoader.getInternalHref({
+        dataHref = this.pageLoader.getDataHref({
           href: formatWithValidation({ pathname, query }),
           asPath: resolvedAs,
           ssg: __N_SSG,
@@ -1611,7 +1610,7 @@ export default class Router implements BaseRouter {
       this.pageLoader._isSsg(route).then((isSsg: boolean) => {
         return isSsg
           ? this._getStaticData(
-              this.pageLoader.getInternalHref({
+              this.pageLoader.getDataHref({
                 href: url,
                 asPath: resolvedAs,
                 ssg: true,
@@ -1668,21 +1667,10 @@ export default class Router implements BaseRouter {
     })
 
     if (!requiresPreflight) {
-      return undefined
+      return { type: 'next' }
     }
 
-    const edgeHref = this.pageLoader.getInternalHref({
-      asPath: cleanedAs,
-      href: formatWithValidation({
-        pathname: options.pathname,
-        query: options.query,
-      }),
-      locale: this.locale,
-      segment: 'preflight',
-    })
-
-    const preflight = await this._getPreflightData(edgeHref, options.cache)
-
+    const preflight = await this._getPreflightData(options.as, options.cache)
     if (preflight.rewrite?.startsWith('/')) {
       const destRes = prepareDestination(
         preflight.rewrite,
@@ -1785,7 +1773,7 @@ export default class Router implements BaseRouter {
    * there are no effects. Optionally, data can be cached although it us
    * useful only on prefetch since it can happen many times in a row.
    *
-   * @param preflightHref The preflight URL.
+   * @param href The preflight URL.
    * @param shouldCache Tells if the effects should be cached.
    */
   _getPreflightData(
@@ -1803,7 +1791,11 @@ export default class Router implements BaseRouter {
       return Promise.resolve(this.sde[cacheKey])
     }
 
-    return fetch(preflightHref, { credentials: 'same-origin' })
+    return fetch(preflightHref, {
+      method: 'OPTIONS',
+      credentials: 'same-origin',
+      headers: { 'x-vercel-preflight': `${this.pageLoader.buildId}` },
+    })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`Failed to preflight request`)
@@ -1811,7 +1803,7 @@ export default class Router implements BaseRouter {
 
         return {
           next: res.headers.get('x-vercel-next'),
-          redirect: res.headers.get('Location'),
+          redirect: res.headers.get('x-vercel-redirect'),
           rewrite: res.headers.get('x-vercel-rewrite'),
         }
       })

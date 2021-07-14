@@ -120,18 +120,16 @@ export default class PageLoader {
    * @param {string} asPath the URL as shown in browser (virtual path); used for dynamic routes
    * @returns {string}
    */
-  getInternalHref({
+  getDataHref({
     href,
     asPath,
     ssg,
-    segment = 'data',
     locale,
   }: {
     href: string
     asPath: string
     ssg: boolean
     locale?: string | false
-    segment: 'preflight' | 'data'
   }): string {
     const { pathname: hrefPathname, query, search } = parseRelativeUrl(href)
     const { pathname: asPathname } = parseRelativeUrl(asPath)
@@ -143,7 +141,7 @@ export default class PageLoader {
         '.json'
       )
       return addBasePath(
-        `/_next/${segment}/${this.buildId}${dataRoute}${ssg ? '' : search}`
+        `/_next/data/${this.buildId}${dataRoute}${ssg ? '' : search}`
       )
     }
 

@@ -32,8 +32,6 @@ import {
   SERVERLESS_DIRECTORY,
   STATIC_STATUS_PAGES,
   TEMPORARY_REDIRECT_STATUS,
-  VERCEL_EDGE_NEXT_HEADER,
-  VERCEL_EDGE_REWRITE_HEADER,
 } from '../shared/lib/constants'
 import {
   getEdgeFunctionRegex,
@@ -768,7 +766,7 @@ export default class Server {
     for (const edgeFunction of this.edgeFunctions) {
       if (edgeFunction.match(url.pathname)) {
         // Removed so that the next Edge Function doesn't collide
-        result?.response.headers.delete(VERCEL_EDGE_NEXT_HEADER)
+        result?.response.headers.delete('x-vercel-next')
 
         result = await this.runEdgeFunction({
           edgeFunction,
@@ -806,10 +804,8 @@ export default class Server {
          * a rewrite to an internal path. In such cases we will run the
          * function again to look ahead further rewrites.
          */
-        if (!result.response.headers.has(VERCEL_EDGE_NEXT_HEADER)) {
-          const rewrite = result.response.headers.get(
-            VERCEL_EDGE_REWRITE_HEADER
-          )
+        if (!result.response.headers.has('x-vercel-next')) {
+          const rewrite = result.response.headers.get('x-vercel-rewrite')
           if (rewrite?.startsWith('/')) {
             const { newUrl } = prepareDestination(
               rewrite,
@@ -829,9 +825,7 @@ export default class Server {
                 })
 
                 // If the next call writes in the response we must shorcut
-                if (
-                  !nextResult?.response.headers.get(VERCEL_EDGE_NEXT_HEADER)
-                ) {
+                if (!nextResult?.response.headers.get('x-vercel-next')) {
                   return nextResult
                 }
               }
@@ -1066,86 +1060,6 @@ export default class Server {
           ),
       },
       {
-        match: route('/_next/preflight/:path*'),
-        type: 'route',
-        name: '_next/preflight catchall',
-        fn: async (req, res, params, parsed) => {
-          if (!params.path || params.path[0] !== this.buildId) {
-            await this.render404(req, res, parsed)
-            return {
-              finished: true,
-            }
-          }
-
-          // remove buildId from URL
-          params.path.shift()
-
-          // show 404 if it doesn't end with .json
-          if (!params.path[params.path.length - 1].endsWith('.json')) {
-            await this.render404(req, res, parsed)
-            return {
-              finished: true,
-            }
-          }
-
-          let pathname = getRouteFromAssetPath(
-            `/${params.path.join('/')}`,
-            '.json'
-          )
-
-          if (this.nextConfig.i18n) {
-            const { host } = req?.headers || {}
-            const hostname = host?.split(':')[0].toLowerCase()
-            const localePathResult = normalizeLocalePath(
-              pathname,
-              this.nextConfig.i18n.locales
-            )
-            const { defaultLocale } =
-              detectDomainLocale(this.nextConfig.i18n.domains, hostname) || {}
-
-            let detectedLocale = ''
-
-            if (localePathResult.detectedLocale) {
-              pathname = localePathResult.pathname
-              detectedLocale = localePathResult.detectedLocale
-            }
-
-            parsed.query.__nextLocale = detectedLocale!
-            parsed.query.__nextDefaultLocale =
-              defaultLocale || this.nextConfig.i18n.defaultLocale
-
-            if (!detectedLocale) {
-              parsed.query.__nextLocale = parsed.query.__nextDefaultLocale
-              await this.render404(req, res, parsed)
-              return { finished: true }
-            }
-          }
-
-          const result = await this.runEdgeFunctions({
-            preflight: true,
-            request: req,
-            url: { ...parsed, pathname },
-          })
-
-          /**
-           * On preflight we just need to copy the headers. All cookie effects
-           * will take place and rewrites and redirects are fixed in the
-           * headers as well.
-           */
-          if (result) {
-            for (const [key, value] of result.response.headers.entries()) {
-              res.setHeader(key, value)
-            }
-          }
-
-          res.end()
-
-          return {
-            finished: true,
-          }
-        },
-      },
-      {
         match: route('/_next/:path*'),
         type: 'route',
         name: '_next catchall',
@@ -1242,15 +1156,25 @@ export default class Server {
       type: 'route',
       name: 'catchall for edge functions',
       fn: async (req, res, params, parsed) => {
+        const preflight = req.method === 'OPTIONS'
         const result = await this.runEdgeFunctions({
           request: req,
           url: parsed,
-          preflight: false,
+          preflight,
         })
 
         if (result) {
           for (const [key, value] of result.response.headers.entries()) {
             res.setHeader(key, value)
+          }
+
+          if (preflight) {
+            res.writeHead(200)
+            res.end()
+
+            return {
+              finished: true,
+            }
           }
 
           if (result.event === 'streaming') {
@@ -1267,7 +1191,7 @@ export default class Server {
             return { finished: true }
           }
 
-          const location = result.response.headers.get('Location')
+          const location = result.response.headers.get('x-vercel-redirect')
           if (location) {
             return getRedirectHandler({
               statusCode: result.response.statusCode,
@@ -1275,9 +1199,7 @@ export default class Server {
             }).call(this, req, res, params, parsed)
           }
 
-          const rewrite = result.response.headers.get(
-            VERCEL_EDGE_REWRITE_HEADER
-          )
+          const rewrite = result.response.headers.get('x-vercel-rewrite')
           if (rewrite) {
             return getRewriteHandler({
               destination: rewrite,

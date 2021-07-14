@@ -79,7 +79,7 @@ export class EdgeResponse {
 
   private location(url: string) {
     this.headers.set(
-      'Location',
+      'x-vercel-redirect',
       url === 'back' ? this.headers.get('Referrer') || '/' : url
     )
   }

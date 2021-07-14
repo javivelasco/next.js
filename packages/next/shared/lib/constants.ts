@@ -45,5 +45,3 @@ export const OPTIMIZED_FONT_PROVIDERS = [
   { url: 'https://use.typekit.net', preconnect: 'https://use.typekit.net' },
 ]
 export const STATIC_STATUS_PAGES = ['/500']
-export const VERCEL_EDGE_NEXT_HEADER = 'x-vercel-next'
-export const VERCEL_EDGE_REWRITE_HEADER = 'x-vercel-rewrite'
