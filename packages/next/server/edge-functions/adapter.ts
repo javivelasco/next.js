@@ -7,6 +7,7 @@ export async function adapter(params: {
   handler: RequestHandler
   request: RequestData
   response: ResponseData
+  runner?: (handler: RequestHandler) => RequestHandler
 }) {
   return new Promise<EdgeFunctionResult>((resolveResponse) => {
     let resolveHandler: {
@@ -49,11 +50,17 @@ export async function adapter(params: {
       })
     }
 
-    params
-      .handler(req, res, next)
+    const runner = params.runner || defaultRunner
+    runner(params.handler)(req, res, next)
       .then(resolveHandler!.resolve)
       .catch((error) => {
         resolveHandler!.reject(error)
       })
   })
+}
+
+function defaultRunner(handler: RequestHandler) {
+  return function (req: EdgeRequest, res: EdgeResponse, next: () => void) {
+    return handler(req, res, next)
+  }
 }
