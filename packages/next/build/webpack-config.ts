@@ -857,7 +857,6 @@ export default async function getBaseWebpackConfig(
                 request,
                 dependencyType,
                 getResolve,
-                contextInfo,
               }: {
                 context: string
                 request: string
@@ -879,35 +878,25 @@ export default async function getBaseWebpackConfig(
                   ) => void
                 ) => void
               }) =>
-                contextInfo.issuerLayer !== 'edge'
-                  ? handleExternals(
-                      context,
-                      request,
-                      dependencyType,
-                      (options) => {
-                        const resolveFunction = getResolve(options)
-                        return (
-                          resolveContext: string,
-                          requestToResolve: string
-                        ) =>
-                          new Promise((resolve, reject) => {
-                            resolveFunction(
-                              resolveContext,
-                              requestToResolve,
-                              (err, result, resolveData) => {
-                                if (err) return reject(err)
-                                if (!result) return resolve([null, false])
-                                const isEsm = /\.js$/i.test(result)
-                                  ? resolveData?.descriptionFileData?.type ===
-                                    'module'
-                                  : /\.mjs$/i.test(result)
-                                resolve([result, isEsm])
-                              }
-                            )
-                          })
-                      }
-                    )
-                  : Promise.resolve()
+                handleExternals(context, request, dependencyType, (options) => {
+                  const resolveFunction = getResolve(options)
+                  return (resolveContext: string, requestToResolve: string) =>
+                    new Promise((resolve, reject) => {
+                      resolveFunction(
+                        resolveContext,
+                        requestToResolve,
+                        (err, result, resolveData) => {
+                          if (err) return reject(err)
+                          if (!result) return resolve([null, false])
+                          const isEsm = /\.js$/i.test(result)
+                            ? resolveData?.descriptionFileData?.type ===
+                              'module'
+                            : /\.mjs$/i.test(result)
+                          resolve([result, isEsm])
+                        }
+                      )
+                    })
+                })
             : (
                 context: string,
                 request: string,
@@ -947,8 +936,7 @@ export default async function getBaseWebpackConfig(
           ? ({
               filename: '[name].js',
               // allow to split entrypoints only for non-edge functions
-              chunks: (chunk: webpack.compilation.Chunk) =>
-                !chunk.name?.endsWith('_edge'),
+              chunks: 'all',
               // size of files is not so relevant for server build
               // we want to prefer deduplication to load less code
               minSize: 1000,
