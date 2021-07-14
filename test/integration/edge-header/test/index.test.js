@@ -20,7 +20,6 @@ function getCookieFromResponse(res, cookieName) {
   }
   return -1
 }
-
 describe('Edge middleware tests', () => {
   beforeAll(async () => {
     context.appPort = await findPort()
@@ -192,5 +191,31 @@ function runTests() {
     const $ = cheerio.load(html)
     expect($('head > title').text()).toBe('Google')
     expect(html).not.toBe('whoops!')
+  })
+
+  it('should validate request url parameters from a static route', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/account/request-parse')
+    expect(res.headers.get('req-url-basepath')).toBe('')
+    expect(res.headers.get('req-url-path')).toBe('/account/request-parse')
+    expect(res.headers.get('req-url-pathname')).toBe('/account/request-parse')
+    expect(res.headers.get('req-url-params')).toBe('{}')
+  })
+
+  it('should validate request url parameters from a dynamic route', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/dynamic/1')
+    expect(res.headers.get('req-url-basepath')).toBe('')
+    expect(res.headers.get('req-url-path')).toBe('/dynamic/1')
+    expect(res.headers.get('req-url-pathname')).toBe('/dynamic/1')
+    expect(res.headers.get('req-url-params')).toBe('{"id":"1"}')
+    expect(res.headers.get('req-url-page')).toBe('/dynamic/[id]')
+  })
+
+  it('should validate request url parameters from a dynamic route', async () => {
+    const res = await fetchViaHTTP(context.appPort, '/dynamic/abc123')
+    expect(res.headers.get('req-url-basepath')).toBe('')
+    expect(res.headers.get('req-url-path')).toBe('/dynamic/abc123')
+    expect(res.headers.get('req-url-pathname')).toBe('/dynamic/abc123')
+    expect(res.headers.get('req-url-params')).toBe('{"id":"abc123"}')
+    expect(res.headers.get('req-url-page')).toBe('/dynamic/[id]')
   })
 }

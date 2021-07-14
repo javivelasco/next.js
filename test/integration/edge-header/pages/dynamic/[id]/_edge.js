@@ -1,7 +1,3 @@
-/*
- * The last effect of Edge middleware is redirects.
- * Redirects update the URL and direct users to a new page.
- */
 export function onEdgeRequest(
   req,
   res,
@@ -9,19 +5,14 @@ export function onEdgeRequest(
     return
   }
 ) {
-  if (req.url.pathname == '/account') {
-    res.redirect('/account/new-page')
-  }
-
-  if (req.url.pathname == '/account/request-parse') {
+  if (req.url.page == '/dynamic/[id]') {
     res.setHeaders({
       'req-url-basepath': req.url.basePath,
       'req-url-path': req.url.path,
       'req-url-pathname': req.url.pathname,
       'req-url-params': JSON.stringify(req.url.params),
+      'req-url-page': req.url.page,
     })
-    res.rewrite('/account/new-page')
   }
-
   next()
 }
