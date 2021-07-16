@@ -726,13 +726,13 @@ export default class Server {
     request: IncomingMessage
     url: UrlWithParsedQuery
     preflight: boolean
-  }): Promise<undefined | EdgeFunctionResult> {
-    if (prevCalls > 5) {
-      throw new Error('Too many Edge Function recursive calls')
-    }
-
+  }): Promise<EdgeFunctionResult | undefined> {
     if (!this.edgeFunctions) {
       return undefined
+    }
+
+    if (prevCalls > 5) {
+      throw new Error('Too many Edge Function recursive calls')
     }
 
     let calls = prevCalls
@@ -741,11 +741,6 @@ export default class Server {
     let page: string | undefined
     let result: EdgeFunctionResult | undefined
 
-    /**
-     * Attempt to find the page in the filesystem or as a match for
-     * dynamic routes. This allows to hint the middleware with next
-     * metadata.
-     */
     if (await this.hasPage(pathname)) {
       page = pathname
     } else if (this.dynamicRoutes) {
@@ -759,15 +754,14 @@ export default class Server {
       }
     }
 
-    // Extract internal query items
+    const basePath = this.nextConfig.basePath
+    const locale = url.query.__nextLocale as string
+    const defaultLocale = url.query.__nextDefaultLocale as string
     const { __nextDefaultLocale, __nextLocale, ...query } = url.query
 
-    // Run all edge function accumulating requests until one shorcuts
     for (const edgeFunction of this.edgeFunctions) {
       if (edgeFunction.match(url.pathname)) {
-        // Removed so that the next Edge Function doesn't collide
         result?.response.headers.delete('x-nextjs-next')
-
         result = await this.runEdgeFunction({
           edgeFunction,
           request: {
@@ -776,9 +770,9 @@ export default class Server {
             url: {
               ...url,
               calls,
-              basePath: this.nextConfig.basePath,
-              defaultLocale: __nextDefaultLocale as string,
-              locale: __nextLocale as string,
+              basePath,
+              defaultLocale,
+              locale,
               page,
               params,
               pathname,
@@ -791,7 +785,6 @@ export default class Server {
           },
         })
 
-        // Accumulate the number of calls to control infinite loops
         calls += 1
 
         if (!result) {
@@ -800,31 +793,46 @@ export default class Server {
         }
 
         /**
-         * When the Edge Function intercepts we will check if there is
-         * a rewrite to an internal path. In such cases we will run the
-         * function again to look ahead further rewrites.
+         * When the edge function has no "next" header it is terminating the
+         * execution. In those cases we will check if there is a rewrite
+         * and, if so, preview the result of invoking the middlewre for it.
+         * This allows to have less hops.
          */
         if (!result.response.headers.has('x-nextjs-next')) {
           const rewrite = result.response.headers.get('x-nextjs-rewrite')
           if (rewrite?.startsWith('/')) {
-            const { newUrl } = prepareDestination(
+            const { parsedDestination: parsedRewrite } = prepareDestination(
               rewrite,
-              params,
+              {},
               url.query,
               true
             )
 
-            // Skip it for identity
-            if (newUrl !== pathname) {
-              if (this.edgeFunctions.some((fn) => fn.match(newUrl))) {
+            if (basePath) {
+              parsedRewrite.pathname =
+                parsedRewrite.pathname.replace(basePath, '') || '/'
+            }
+
+            if (locale) {
+              parsedRewrite.pathname = normalizeLocalePath(
+                parsedRewrite.pathname,
+                this.nextConfig.i18n?.locales
+              ).pathname
+            }
+
+            if (parsedRewrite.pathname !== pathname) {
+              if (
+                this.edgeFunctions.some((fn) =>
+                  fn.match(parsedRewrite.pathname)
+                )
+              ) {
                 const nextResult = await this.runEdgeFunctions({
                   preflight,
                   prevCalls: calls,
                   request,
-                  url: { ...url, pathname: newUrl },
+                  url: { ...url, ...parsedRewrite },
                 })
 
-                // If the next call writes in the response we must shorcut
                 if (!nextResult?.response.headers.get('x-nextjs-next')) {
                   return nextResult
                 }
@@ -832,8 +840,7 @@ export default class Server {
             }
           }
 
-          result.response.headers.set('x-nextjs-functions', `${calls}`)
-          return result
+          break
         }
       }
     }
@@ -1204,7 +1211,6 @@ export default class Server {
           const rewrite = result.response.headers.get('x-nextjs-rewrite')
           if (rewrite) {
             return getRewriteHandler({
-              appendParamsToQuery: false,
               destination: rewrite,
             }).call(this, req, res, {}, parsed)
           }
@@ -2543,17 +2549,15 @@ function getRedirectHandler(redirectRoute: {
 
 function getRewriteHandler({
   destination,
-  appendParamsToQuery = true,
 }: {
   destination: string
-  appendParamsToQuery?: boolean
 }): Route['fn'] {
   return async (req, res, params, parsedUrl) => {
     const { newUrl, parsedDestination } = prepareDestination(
       destination,
       params,
       parsedUrl.query,
-      appendParamsToQuery
+      true
     )
 
     // external rewrite, proxy it
