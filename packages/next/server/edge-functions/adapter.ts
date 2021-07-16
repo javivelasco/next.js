@@ -26,6 +26,7 @@ export async function adapter(params: {
     })
 
     const res = new EdgeResponse({
+      url: params.request.url,
       method: params.request.method,
       headers: params.response.headers,
       onHeadersSent: (event, response) => {
@@ -42,7 +43,7 @@ export async function adapter(params: {
         return
       }
 
-      res.headers.set('x-vercel-next', '1')
+      res.headers.set('x-nextjs-next', '1')
       resolveResponse({
         event: 'next',
         response: res,

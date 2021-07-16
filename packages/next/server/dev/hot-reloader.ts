@@ -55,7 +55,7 @@ export async function renderScriptError(
 function addCorsSupport(req: IncomingMessage, res: ServerResponse) {
   const isApiRoute = req.url!.match(API_ROUTE)
   // API routes handle their own CORS headers
-  if (isApiRoute || req.headers['x-vercel-preflight']) {
+  if (isApiRoute || req.headers['x-nextjs-preflight']) {
     return { preflight: false }
   }
 

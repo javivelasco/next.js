@@ -1,33 +1,35 @@
-import { encode, byteLength } from './utils'
+import { encode, byteLength, formatUrl } from './utils'
 import cookie, { CookieSerializeOptions } from 'next/dist/compiled/cookie'
 import type { Dictionary, HeadersEvent } from './types'
-
-interface Options {
-  method: string
-  headers?: Headers
-  onHeadersSent(event: HeadersEvent, res: EdgeResponse): void
-}
+import type { NextEdgeUrl } from './types'
 
 export class EdgeResponse {
   private _body?: null | string | ReadableStream
+  private _cookieParser: () => { [key: string]: string }
   private _input = new TransformStream()
   private _method: string
-  private _cookieParser: () => { [key: string]: string }
   private _onHeadersSent: (event: HeadersEvent, res: EdgeResponse) => void
   private _output = new TransformStream()
   private _reader?: ReadableStreamDefaultReader
-  private _writer?: WritableStreamDefaultWriter
   private _streaming = false
+  private _url: NextEdgeUrl
+  private _writer?: WritableStreamDefaultWriter
 
   public finished = false
   public headers
   public headersSent = false
   public statusCode = 200
 
-  constructor(options: Options) {
+  constructor(options: {
+    headers?: Headers
+    method: string
+    onHeadersSent(event: HeadersEvent, res: EdgeResponse): void
+    url: NextEdgeUrl
+  }) {
     this._method = options.method
-    this.headers = options.headers || new Headers()
     this._onHeadersSent = options.onHeadersSent
+    this._url = options.url
+    this.headers = options.headers || new Headers()
 
     this._cookieParser = () => {
       const value = this.headers.get('cookie')
@@ -77,11 +79,25 @@ export class EdgeResponse {
     return this._writer
   }
 
-  private location(url: string) {
-    this.headers.set(
-      'x-vercel-redirect',
-      url === 'back' ? this.headers.get('Referrer') || '/' : url
-    )
+  private _prependPathname(pathname: string) {
+    if (!pathname.startsWith('/')) {
+      return pathname
+    }
+
+    if (this._url.defaultLocale !== this._url.locale) {
+      pathname = `/${this._url.locale}${pathname}`
+    }
+
+    if (this._url.basePath && !pathname.startsWith(this._url.basePath)) {
+      pathname = `${this._url.basePath}${pathname}`
+    }
+
+    return pathname
+  }
+
+  private _location(url: string) {
+    const _url = url === 'back' ? this.headers.get('Referrer') || '/' : url
+    this.headers.set('x-nextjs-redirect', this._prependPathname(_url))
   }
 
   private _sendHeaders(event: HeadersEvent) {
@@ -217,27 +233,38 @@ export class EdgeResponse {
     this.end()
   }
 
-  public redirect(url: string): void
-  public redirect(status: number, url: string): void
-  public redirect(statusOrUrl: string | number, url?: string) {
+  public redirect(url: string | NextEdgeUrl): void
+  public redirect(status: number, url: string | NextEdgeUrl): void
+  public redirect(
+    statusOrUrl: string | number | NextEdgeUrl,
+    url?: string | NextEdgeUrl
+  ) {
     let status: number
     let address: string
 
-    if (typeof statusOrUrl === 'string') {
-      address = statusOrUrl
+    if (typeof url === 'undefined') {
+      if (typeof statusOrUrl === 'number') {
+        throw new TypeError(`Expected as string as redirect URL`)
+      }
+
       status = 302
+      address = formatUrl(statusOrUrl)
     } else {
+      if (typeof statusOrUrl !== 'number') {
+        throw new TypeError(`Expected as number as redirect status`)
+      }
+
       status = statusOrUrl
-      address = url as string
+      address = formatUrl(url)
     }
 
-    this.location(address)
+    this._location(address)
     this.status(status)
     this.end()
   }
 
-  public rewrite(url: string) {
-    this.headers.set('x-vercel-rewrite', url)
+  public rewrite(url: string | NextEdgeUrl) {
+    this.headers.set('x-nextjs-rewrite', this._prependPathname(formatUrl(url)))
     this.end()
   }
 

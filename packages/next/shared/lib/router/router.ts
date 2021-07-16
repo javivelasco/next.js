@@ -34,7 +34,6 @@ import resolveRewrites from './utils/resolve-rewrites'
 import { getRouteMatcher } from './utils/route-matcher'
 import { getRouteRegex } from './utils/route-regex'
 import { getEdgeFunctionRegex } from './utils/get-edge-function-regex'
-import prepareDestination from './utils/prepare-destination'
 
 declare global {
   interface Window {
@@ -64,6 +63,29 @@ interface PreflightData {
   redirect?: string | null
   rewrite?: string | null
 }
+
+type PreflightEffect =
+  | {
+      asPath: string
+      matchedPage?: boolean
+      parsedAs: ReturnType<typeof parseRelativeUrl>
+      resolvedHref: string
+      type: 'rewrite'
+    }
+  | {
+      destination?: undefined
+      newAs: string
+      newUrl: string
+      type: 'redirect'
+    }
+  | {
+      destination: string
+      newAs?: undefined
+      newUrl?: undefined
+      type: 'redirect'
+    }
+  | { type: 'next' }
+  | { type?: undefined }
 
 type HistoryState =
   | null
@@ -1029,32 +1051,30 @@ export default class Router implements BaseRouter {
       }
     }
 
-    if (!shallow) {
-      const effects = await this._preflightRequest({
-        pathname,
-        query,
-        as,
-        pages,
-      })
+    resolvedAs = delLocale(delBasePath(resolvedAs), this.locale)
 
-      if (effects.type !== 'next') {
-        if (effects.type === 'rewrite' && effects.resolvedHref) {
-          pathname = effects.resolvedHref
-          parsed.pathname = pathname
-          url = formatWithValidation(parsed)
-        } else if (effects.type === 'redirect') {
-          if (effects.destination) {
-            window.location.href = effects.destination
-            return new Promise(() => {})
-          }
+    const effects = await this._preflightRequest({
+      pathname,
+      query,
+      as,
+      pages,
+    })
 
-          if (effects.newAs) {
-            return this.change(method, effects.newUrl, effects.newAs, options)
-          }
-        } else {
-          window.location.href = as
-          return new Promise(() => {})
-        }
+    if (effects.type !== 'next') {
+      if (effects.type === 'rewrite') {
+        query = effects.parsedAs.query
+        resolvedAs = effects.asPath
+        pathname = effects.resolvedHref
+        parsed.pathname = pathname
+        url = formatWithValidation(parsed)
+      } else if (effects.type === 'redirect' && effects.newAs) {
+        return this.change(method, effects.newUrl, effects.newAs, options)
+      } else if (effects.type === 'redirect' && effects.destination) {
+        window.location.href = effects.destination
+        return new Promise(() => {})
+      } else {
+        window.location.href = as
+        return new Promise(() => {})
       }
     }
 
@@ -1071,8 +1091,6 @@ export default class Router implements BaseRouter {
       window.location.href = as
       return false
     }
-
-    resolvedAs = delLocale(delBasePath(resolvedAs), this.locale)
 
     if (isDynamicRoute(route)) {
       const parsedAs = parseRelativeUrl(resolvedAs)
@@ -1598,7 +1616,9 @@ export default class Router implements BaseRouter {
       cache: true,
     })
 
-    if (effects?.matchedPage && effects.resolvedHref) {
+    if (effects.type === 'rewrite') {
+      resolvedAs = effects.asPath
+      query = effects.parsedAs.query
       pathname = effects.resolvedHref
       parsed.pathname = pathname
       url = formatWithValidation(parsed)
@@ -1655,7 +1675,7 @@ export default class Router implements BaseRouter {
     query: ParsedUrlQuery
     pages: string[]
     cache?: boolean
-  }) {
+  }): Promise<PreflightEffect> {
     const cleanedAs = delLocale(
       hasBasePath(options.as) ? delBasePath(options.as) : options.as,
       this.locale
@@ -1672,15 +1692,16 @@ export default class Router implements BaseRouter {
 
     const preflight = await this._getPreflightData(options.as, options.cache)
     if (preflight.rewrite?.startsWith('/')) {
-      const destRes = prepareDestination(
-        preflight.rewrite,
-        {},
-        options.query,
-        false
+      const parsed = parseRelativeUrl(
+        normalizeLocalePath(
+          hasBasePath(preflight.rewrite)
+            ? delBasePath(preflight.rewrite)
+            : preflight.rewrite,
+          this.locales
+        ).pathname
       )
-      const fsPathname = removePathTrailingSlash(
-        normalizeLocalePath(destRes.newUrl, this.locales).pathname
-      )
+
+      const fsPathname = removePathTrailingSlash(parsed.pathname)
 
       let matchedPage
       let resolvedHref
@@ -1695,7 +1716,7 @@ export default class Router implements BaseRouter {
         resolvedHref = resolveDynamicRoute(fsPathname, options.pages)
 
         if (
-          resolvedHref !== destRes.newUrl &&
+          resolvedHref !== parsed.pathname &&
           options.pages.includes(resolvedHref)
         ) {
           matchedPage = true
@@ -1704,8 +1725,8 @@ export default class Router implements BaseRouter {
 
       return {
         type: 'rewrite',
-        asPath: destRes.newUrl,
-        parsedAs: destRes.parsedDestination,
+        asPath: parsed.pathname,
+        parsedAs: parsed,
         matchedPage,
         resolvedHref,
       }
@@ -1713,16 +1734,19 @@ export default class Router implements BaseRouter {
 
     if (preflight.redirect) {
       if (preflight.redirect.startsWith('/')) {
-        const parsedHref = parseRelativeUrl(preflight.redirect)
-        parsedHref.pathname = resolveDynamicRoute(
-          parsedHref.pathname,
-          options.pages
+        const cleanRedirect = removePathTrailingSlash(
+          normalizeLocalePath(
+            hasBasePath(preflight.redirect)
+              ? delBasePath(preflight.redirect)
+              : preflight.redirect,
+            this.locales
+          ).pathname
         )
 
         const { url: newUrl, as: newAs } = prepareUrlAs(
           this,
-          preflight.redirect,
-          preflight.redirect
+          cleanRedirect,
+          cleanRedirect
         )
 
         return {
@@ -1794,7 +1818,7 @@ export default class Router implements BaseRouter {
     return fetch(preflightHref, {
       method: 'OPTIONS',
       credentials: 'same-origin',
-      headers: { 'x-vercel-preflight': `${this.pageLoader.buildId}` },
+      headers: { 'x-nextjs-preflight': `${this.pageLoader.buildId}` },
     })
       .then((res) => {
         if (!res.ok) {
@@ -1802,9 +1826,9 @@ export default class Router implements BaseRouter {
         }
 
         return {
-          next: res.headers.get('x-vercel-next'),
-          redirect: res.headers.get('x-vercel-redirect'),
-          rewrite: res.headers.get('x-vercel-rewrite'),
+          next: res.headers.get('x-nextjs-next'),
+          redirect: res.headers.get('x-nextjs-redirect'),
+          rewrite: res.headers.get('x-nextjs-rewrite'),
         }
       })
       .then((data) => {

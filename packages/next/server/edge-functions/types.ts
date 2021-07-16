@@ -1,4 +1,4 @@
-import type { UrlWithParsedQuery } from 'url'
+import type { ParsedUrlQuery } from 'querystring'
 import type { EdgeRequest } from './request'
 import type { EdgeResponse } from './response'
 
@@ -6,15 +6,20 @@ export type Dictionary<T = any> = {
   [key: string]: T
 }
 
-export interface NextEdgeUrl extends UrlWithParsedQuery {
+export interface NextEdgeUrl {
   basePath?: string
   calls: number
   defaultLocale?: string
+  hash: string | null
+  hostname: string | null
   locale?: string
   page?: string
   params: { [key: string]: string }
   pathname: string
+  port: string | null
   preflight: boolean
+  protocol: string | null
+  query: ParsedUrlQuery
 }
 
 export interface RequestHandler {

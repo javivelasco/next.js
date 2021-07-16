@@ -1,3 +1,6 @@
+import { formatUrl as format } from '../../shared/lib/router/utils/format-url'
+import type { NextEdgeUrl } from './types'
+
 export const Encoder = new TextEncoder()
 export const Decoder = new TextDecoder()
 
@@ -7,4 +10,26 @@ export const decode = (input: ArrayBufferView | ArrayBuffer, stream = false) =>
 
 export function byteLength(input?: string): number {
   return input ? Encoder.encode(input).byteLength : 0
+}
+
+export function formatUrl(url: string | NextEdgeUrl) {
+  return typeof url !== 'string' ? format(filterUrl(url)) : url
+}
+
+function filterUrl(url: NextEdgeUrl): NextEdgeUrl {
+  return {
+    basePath: url.basePath,
+    calls: url.calls,
+    defaultLocale: url.defaultLocale,
+    hash: url.hash || null,
+    hostname: url.hostname || null,
+    locale: url.locale,
+    page: url.page,
+    params: url.params,
+    pathname: url.pathname,
+    port: url.port || null,
+    preflight: url.preflight,
+    protocol: url.protocol,
+    query: url.query,
+  }
 }

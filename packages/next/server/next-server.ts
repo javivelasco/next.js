@@ -766,7 +766,7 @@ export default class Server {
     for (const edgeFunction of this.edgeFunctions) {
       if (edgeFunction.match(url.pathname)) {
         // Removed so that the next Edge Function doesn't collide
-        result?.response.headers.delete('x-vercel-next')
+        result?.response.headers.delete('x-nextjs-next')
 
         result = await this.runEdgeFunction({
           edgeFunction,
@@ -804,8 +804,8 @@ export default class Server {
          * a rewrite to an internal path. In such cases we will run the
          * function again to look ahead further rewrites.
          */
-        if (!result.response.headers.has('x-vercel-next')) {
-          const rewrite = result.response.headers.get('x-vercel-rewrite')
+        if (!result.response.headers.has('x-nextjs-next')) {
+          const rewrite = result.response.headers.get('x-nextjs-rewrite')
           if (rewrite?.startsWith('/')) {
             const { newUrl } = prepareDestination(
               rewrite,
@@ -825,20 +825,20 @@ export default class Server {
                 })
 
                 // If the next call writes in the response we must shorcut
-                if (!nextResult?.response.headers.get('x-vercel-next')) {
+                if (!nextResult?.response.headers.get('x-nextjs-next')) {
                   return nextResult
                 }
               }
             }
           }
 
-          result.response.headers.set('x-vercel-functions', `${calls}`)
+          result.response.headers.set('x-nextjs-functions', `${calls}`)
           return result
         }
       }
     }
 
-    result?.response.headers.set('x-vercel-functions', `${calls}`)
+    result?.response.headers.set('x-nextjs-functions', `${calls}`)
     return result
   }
 
@@ -1155,12 +1155,14 @@ export default class Server {
       match: route('/:path*'),
       type: 'route',
       name: 'catchall for edge functions',
-      fn: async (req, res, params, parsed) => {
-        const preflight = req.method === 'OPTIONS'
+      fn: async (req, res, _, parsed) => {
+        const isPreflight =
+          Boolean(req.headers['x-nextjs-preflight']) && req.method === 'OPTIONS'
+
         const result = await this.runEdgeFunctions({
+          preflight: isPreflight,
           request: req,
           url: parsed,
-          preflight,
         })
 
         if (result) {
@@ -1168,7 +1170,7 @@ export default class Server {
             res.setHeader(key, value)
           }
 
-          if (preflight) {
+          if (isPreflight) {
             res.writeHead(200)
             res.end()
 
@@ -1191,22 +1193,22 @@ export default class Server {
             return { finished: true }
           }
 
-          const location = result.response.headers.get('x-vercel-redirect')
+          const location = result.response.headers.get('x-nextjs-redirect')
           if (location) {
             return getRedirectHandler({
-              statusCode: result.response.statusCode,
               destination: location,
-            }).call(this, req, res, params, parsed)
+              statusCode: result.response.statusCode,
+            }).call(this, req, res, {}, parsed)
           }
 
-          const rewrite = result.response.headers.get('x-vercel-rewrite')
+          const rewrite = result.response.headers.get('x-nextjs-rewrite')
           if (rewrite) {
             return getRewriteHandler({
+              appendParamsToQuery: false,
               destination: rewrite,
-            }).call(this, req, res, params, parsed)
+            }).call(this, req, res, {}, parsed)
           }
 
-          // This should come after checking rewrite and redirect
           if (result.event === 'data') {
             res.end(result.response.body)
             return { finished: true }
@@ -2539,13 +2541,19 @@ function getRedirectHandler(redirectRoute: {
   }
 }
 
-function getRewriteHandler(rewriteRoute: { destination: string }): Route['fn'] {
+function getRewriteHandler({
+  destination,
+  appendParamsToQuery = true,
+}: {
+  destination: string
+  appendParamsToQuery?: boolean
+}): Route['fn'] {
   return async (req, res, params, parsedUrl) => {
     const { newUrl, parsedDestination } = prepareDestination(
-      rewriteRoute.destination,
+      destination,
       params,
       parsedUrl.query,
-      true
+      appendParamsToQuery
     )
 
     // external rewrite, proxy it
