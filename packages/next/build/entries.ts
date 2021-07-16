@@ -61,7 +61,6 @@ export type WebpackEntrypoints = {
     | {
         import: string | string[]
         dependOn?: string | string[]
-        layer?: string
       }
 }
 
@@ -146,10 +145,9 @@ export function createEntrypoints(
 
     if (isEdgeFunction) {
       const edgeLoaderOpts: EdgeLoaderOptions = { absolutePagePath }
-      server[serverBundlePath] = {
-        import: `next-edge-loader?${stringify(edgeLoaderOpts)}!`,
-        layer: 'edge',
-      }
+      server[serverBundlePath] = `next-edge-loader?${stringify(
+        edgeLoaderOpts
+      )}!`
     }
 
     if (page === '/_document') {

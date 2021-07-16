@@ -861,11 +861,6 @@ export default async function getBaseWebpackConfig(
                 context: string
                 request: string
                 dependencyType: string
-                contextInfo: {
-                  compiler: string
-                  issuer: string
-                  issuerLayer: string | null
-                }
                 getResolve: (
                   options: any
                 ) => (
@@ -1352,13 +1347,6 @@ export default async function getBaseWebpackConfig(
   if (isWebpack5) {
     // futureEmitAssets is on by default in webpack 5
     delete webpackConfig.output?.futureEmitAssets
-
-    if (isServer) {
-      /** @ts-ignore Remove once Webpack types are updated */
-      webpackConfig.experiments = {
-        layers: true,
-      }
-    }
 
     if (isServer && dev) {
       // Enable building of client compilation before server compilation in development
