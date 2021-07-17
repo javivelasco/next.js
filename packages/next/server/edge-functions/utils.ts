@@ -16,6 +16,29 @@ export function formatUrl(url: string | NextEdgeUrl) {
   return typeof url !== 'string' ? format(filterUrl(url)) : url
 }
 
+export function formatPathname(
+  pathname: string,
+  options: {
+    basePath?: string
+    defaultLocale?: string
+    locale?: string
+  }
+) {
+  if (!pathname.startsWith('/')) {
+    return pathname
+  }
+
+  if (options.locale && options.defaultLocale !== options.locale) {
+    pathname = `/${options.locale}${pathname}`
+  }
+
+  if (options.basePath && !pathname.startsWith(options.basePath)) {
+    pathname = `${options.basePath}${pathname}`
+  }
+
+  return pathname
+}
+
 function filterUrl(url: NextEdgeUrl): NextEdgeUrl {
   return {
     basePath: url.basePath,

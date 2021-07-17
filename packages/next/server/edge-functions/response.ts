@@ -1,4 +1,4 @@
-import { encode, byteLength, formatUrl } from './utils'
+import { encode, byteLength, formatPathname, formatUrl } from './utils'
 import cookie, { CookieSerializeOptions } from 'next/dist/compiled/cookie'
 import type { Dictionary, HeadersEvent } from './types'
 import type { NextEdgeUrl } from './types'
@@ -79,25 +79,34 @@ export class EdgeResponse {
     return this._writer
   }
 
-  private _prependPathname(pathname: string) {
-    if (!pathname.startsWith('/')) {
-      return pathname
+  private _formatUrl(url: string | NextEdgeUrl) {
+    if (typeof url === 'string') {
+      return formatPathname(url, this._url)
     }
 
-    if (this._url.defaultLocale !== this._url.locale) {
-      pathname = `/${this._url.locale}${pathname}`
+    if (
+      this._url.protocol === url.protocol &&
+      this._url.hostname === url.hostname &&
+      this._url.port === url.port
+    ) {
+      return formatUrl({
+        ...url,
+        protocol: null,
+        hostname: null,
+        port: null,
+        pathname: formatPathname(url.pathname, url),
+      })
     }
 
-    if (this._url.basePath && !pathname.startsWith(this._url.basePath)) {
-      pathname = `${this._url.basePath}${pathname}`
-    }
-
-    return pathname
+    return formatUrl({
+      ...url,
+      pathname: formatPathname(url.pathname, url),
+    })
   }
 
   private _location(url: string) {
     const _url = url === 'back' ? this.headers.get('Referrer') || '/' : url
-    this.headers.set('x-nextjs-redirect', this._prependPathname(_url))
+    this.headers.set('x-nextjs-redirect', this._formatUrl(_url))
   }
 
   private _sendHeaders(event: HeadersEvent) {
@@ -248,14 +257,14 @@ export class EdgeResponse {
       }
 
       status = 302
-      address = formatUrl(statusOrUrl)
+      address = this._formatUrl(statusOrUrl)
     } else {
       if (typeof statusOrUrl !== 'number') {
         throw new TypeError(`Expected as number as redirect status`)
       }
 
       status = statusOrUrl
-      address = formatUrl(url)
+      address = this._formatUrl(url)
     }
 
     this._location(address)
@@ -264,7 +273,7 @@ export class EdgeResponse {
   }
 
   public rewrite(url: string | NextEdgeUrl) {
-    this.headers.set('x-nextjs-rewrite', this._prependPathname(formatUrl(url)))
+    this.headers.set('x-nextjs-rewrite', this._formatUrl(url))
     this.end()
   }
 
