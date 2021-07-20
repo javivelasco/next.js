@@ -110,6 +110,7 @@ import { NextConfigComplete } from './config-shared'
 import type { NextEdgeFunction } from './edge-functions/types'
 import type { EdgeFunctionResult, NextEdgeUrl } from './edge-functions'
 import type { EdgeManifest } from '../build/webpack/plugins/edge-manifest-plugin'
+import { parseRelativeUrl } from '../shared/lib/router/utils/parse-relative-url'
 
 const getCustomRouteMatcher = pathMatch(true)
 
@@ -544,10 +545,6 @@ export default class Server {
         !detectedLocale ||
         detectedLocale.toLowerCase() === defaultLocale.toLowerCase()
       const shouldStripDefaultLocale = false
-      // detectedDefaultLocale &&
-      // denormalizedPagePath.toLowerCase() ===
-      //   `/${i18n.defaultLocale.toLowerCase()}`
-
       const shouldAddLocalePrefix =
         !detectedDefaultLocale && denormalizedPagePath === '/'
 
@@ -711,6 +708,119 @@ export default class Server {
     return found
   }
 
+  protected async edgeMiddleware(
+    ...args: Parameters<NextEdgeFunction>
+  ): Promise<EdgeFunctionResult | undefined> {
+    const req = args[0].request
+    const res = args[0].response
+    const calls = parseInt(res.headers?.get('x-calls') || '0', 10)
+    if (calls > 5) {
+      throw new Error('Too many Edge Function recursive calls')
+    }
+
+    let params: { [key: string]: string } = {}
+    let page: string | undefined
+
+    if (await this.hasPage(req.url.pathname)) {
+      page = req.url.pathname
+    } else if (this.dynamicRoutes) {
+      for (const dynamicRoute of this.dynamicRoutes) {
+        const matchParams = dynamicRoute.match(req.url.pathname)
+        if (matchParams) {
+          page = dynamicRoute.page
+          params = matchParams
+          break
+        }
+      }
+    }
+
+    let result: EdgeFunctionResult | undefined
+
+    for (const func of this.edgeFunctions || []) {
+      if (func.match(req.url.pathname)) {
+        result?.response.headers.delete('x-nextjs-next')
+
+        if (!(await this.hasEdgeFunction(func.page))) {
+          console.warn(`The Edge Function for ${func.page} was not found`)
+          continue
+        }
+
+        await this.ensureEdgeFunction(func.page)
+        let builtPath: string
+
+        try {
+          builtPath = getEdgeFunctionPath(
+            func.page,
+            this.distDir,
+            this._isLikeServerless,
+            this.renderOpts.dev
+          )
+        } catch (err) {
+          if (err.code === 'ENOENT') {
+            console.warn(`No edge function "${func}" found`)
+            continue
+          }
+
+          throw err
+        }
+
+        const edgeFn: NextEdgeFunction = interopDefault(require(builtPath))
+        result = await edgeFn({
+          request: {
+            headers: req.headers,
+            method: req.method,
+            url: {
+              ...req.url,
+              page,
+              params,
+            },
+          },
+          response: {
+            headers: result?.response.headers,
+          },
+        })
+
+        result.response.headers.set('x-calls', `${calls + 1}`)
+        if (!result.response.headers.has('x-nextjs-next')) {
+          const rewrite = result.response.headers.get('x-nextjs-rewrite')
+          if (rewrite?.startsWith('/')) {
+            const parsed = parseInternalURL({
+              basePath: this.nextConfig.basePath,
+              i18n: this.nextConfig.i18n,
+              url: rewrite,
+            })
+
+            if (parsed.pathname !== req.url.pathname) {
+              if (this.edgeFunctions!.some((fn) => fn.match(parsed.pathname))) {
+                const nextResult = await this.edgeMiddleware({
+                  response: { headers: res.headers },
+                  request: {
+                    method: req.method,
+                    headers: req.headers,
+                    url: {
+                      ...req.url,
+                      ...parsed,
+                      query: {
+                        ...req.url.query,
+                        ...parsed.query,
+                      },
+                    },
+                  },
+                })
+
+                if (!nextResult?.response.headers.get('x-nextjs-next')) {
+                  return nextResult
+                }
+              }
+            }
+          }
+
+          break
+        }
+      }
+    }
+  }
+
   /**
    * For the given request, this function will run all edge functions
    * collecting all effects. Each function will run with the original
@@ -769,7 +879,6 @@ export default class Server {
             method: request.method,
             url: {
               ...url,
-              calls,
               basePath,
               defaultLocale,
               locale,
@@ -2626,4 +2735,33 @@ type ResponsePayload = {
   type: 'html' | 'json'
   body: string
   revalidateOptions?: any
+}
+
+function parseInternalURL(opts: {
+  url: string
+  basePath?: string
+  i18n?: {
+    locales: string[]
+    defaultLocale: string
+    domains?: DomainLocales
+    localeDetection?: false
+  } | null
+}) {
+  const { url, basePath, i18n } = opts
+  const parsed = parseRelativeUrl(url)
+
+  let locale: string | undefined = undefined
+  let pathname = parsed.pathname || '/'
+
+  if (basePath) {
+    pathname = pathname.replace(basePath, '') || '/'
+  }
+
+  if (i18n) {
+    const res = normalizeLocalePath(parsed.pathname, i18n?.locales)
+    pathname = res.pathname
+    locale = res.detectedLocale
+  }
+
+  return { ...parsed, pathname, basePath, locale }
 }

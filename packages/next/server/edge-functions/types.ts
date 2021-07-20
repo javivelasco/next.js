@@ -8,13 +8,12 @@ export type Dictionary<T = any> = {
 
 export interface NextEdgeUrl {
   basePath?: string
-  calls: number
   defaultLocale?: string
   hash: string | null
   hostname: string | null
   locale?: string
   page?: string
-  params: { [key: string]: string }
+  params?: { [key: string]: string }
   pathname: string
   port: string | null
   preflight: boolean
@@ -45,7 +44,9 @@ export interface ResponseData {
 }
 
 export interface NextEdgeFunction {
-  (params: { request: RequestData; response: ResponseData }): Promise<
-    EdgeFunctionResult
-  >
+  (params: {
+    request: RequestData
+    response: ResponseData
+    runner?: (handler: RequestHandler) => RequestHandler
+  }): Promise<EdgeFunctionResult>
 }
