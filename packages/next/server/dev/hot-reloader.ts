@@ -406,7 +406,8 @@ export default class HotReloader {
             const page = pageKey.slice(
               isClientKey ? 'client'.length : 'server'.length
             )
-            const isServerOnly = page.match(API_ROUTE) || page.match(MIDDLEWARE_ROUTE)
+            const isMiddleware = page.match(MIDDLEWARE_ROUTE)
+            const isServerOnly = page.match(API_ROUTE) || isMiddleware
             if (isClientCompilation && isServerOnly) {
               return
             }
@@ -424,21 +425,28 @@ export default class HotReloader {
               absolutePagePath,
             }
 
-            if (isClientCompilation) {
-              entrypoints[bundlePath] = finalizeEntrypoint(
-                bundlePath,
-                `next-client-pages-loader?${stringify(pageLoaderOpts)}!`,
-                false
-              )
+            if (isClientCompilation && isMiddleware) {
+              entrypoints[bundlePath] = {
+                import: `edge-function-loader?${stringify(pageLoaderOpts)}!`,
+                layer: 'edge',
+              }
             } else {
-              let request = relative(config.context!, absolutePagePath)
-              if (!isAbsolute(request) && !request.startsWith('../'))
-                request = `./${request}`
-              entrypoints[bundlePath] = finalizeEntrypoint(
-                bundlePath,
-                request,
-                true
-              )
+              if (isClientCompilation) {
+                entrypoints[bundlePath] = finalizeEntrypoint(
+                  bundlePath,
+                  `next-client-pages-loader?${stringify(pageLoaderOpts)}!`,
+                  false
+                )
+              } else {
+                let request = relative(config.context!, absolutePagePath)
+                if (!isAbsolute(request) && !request.startsWith('../'))
+                  request = `./${request}`
+                entrypoints[bundlePath] = finalizeEntrypoint(
+                  bundlePath,
+                  request,
+                  true
+                )
+              }
             }
           })
         )
