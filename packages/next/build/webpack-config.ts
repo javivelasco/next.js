@@ -34,6 +34,7 @@ import { finalizeEntrypoint } from './entries'
 import * as Log from './output/log'
 import { build as buildConfiguration } from './webpack/config'
 import { __overrideCssConfiguration } from './webpack/config/blocks/css/overrideCssConfiguration'
+import MiddlewareManifestPlugin from './webpack/plugins/middleware-manifest-plugin'
 import BuildManifestPlugin from './webpack/plugins/build-manifest-plugin'
 import { JsConfigPathsPlugin } from './webpack/plugins/jsconfig-paths-plugin'
 import { DropClientPage } from './webpack/plugins/next-drop-client-page-plugin'
@@ -900,7 +901,7 @@ export default async function getBaseWebpackConfig(
             } as any)
         : splitChunksConfig,
       runtimeChunk: isServer
-        ? undefined
+        ? { name: ({ name }) => name.endsWith('_middleware') ? undefined : 'webpack-runtime' }
         : { name: CLIENT_STATIC_FILES_RUNTIME_WEBPACK },
       minimize: !(dev || isServer),
       minimizer: [
@@ -1231,6 +1232,7 @@ export default async function getBaseWebpackConfig(
       isServerless && isServer && new ServerlessPlugin(),
       isServer &&
         new PagesManifestPlugin({ serverless: isLikeServerless, dev }),
+      isServer && new MiddlewareManifestPlugin({ dev }),
       isServer && new NextJsSsrImportPlugin(),
       !isServer &&
         new BuildManifestPlugin({
