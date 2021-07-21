@@ -46,6 +46,7 @@ import {
   SERVER_DIRECTORY,
   SERVER_FILES_MANIFEST,
   STATIC_STATUS_PAGES,
+  MIDDLEWARE_MANIFEST,
 } from '../shared/lib/constants'
 import {
   getRouteRegex,
@@ -90,8 +91,10 @@ import { writeBuildId } from './write-build-id'
 import { normalizeLocalePath } from '../shared/lib/i18n/normalize-locale-path'
 import { isWebpack5 } from 'next/dist/compiled/webpack/webpack'
 import { NextConfigComplete } from '../server/config-shared'
+import { MiddlewareManifest } from './webpack/plugins/middleware-manifest-plugin'
 
 const staticCheckWorker = require.resolve('./utils')
+const RESERVED_PAGE_REGEX = /(^\/(_app|_error|_document|api(\/|$))|_edge$)/
 
 export type SsgRoute = {
   initialRevalidateSeconds: number | false
@@ -387,6 +390,12 @@ export default async function build(
             fallback: Array<ReturnType<typeof buildCustomRoute>>
           }
       headers: Array<ReturnType<typeof buildCustomRoute>>
+      staticRoutes: Array<{
+        page: string
+        regex: string
+        namedRegex?: string
+        routeKeys?: { [key: string]: string }
+      }>
       dynamicRoutes: Array<{
         page: string
         regex: string
@@ -418,15 +427,12 @@ export default async function build(
       headers: headers.map((r: any) => buildCustomRoute(r, 'header')),
       dynamicRoutes: getSortedRoutes(pageKeys)
         .filter(isDynamicRoute)
-        .map((page) => {
-          const routeRegex = getRouteRegex(page)
-          return {
-            page,
-            regex: normalizeRouteRegex(routeRegex.re.source),
-            routeKeys: routeRegex.routeKeys,
-            namedRegex: routeRegex.namedRegex,
-          }
-        }),
+        .map(pageToRoute),
+      staticRoutes: getSortedRoutes(pageKeys)
+        .filter(
+          (page) => !isDynamicRoute(page) && !page.match(RESERVED_PAGE_REGEX)
+        )
+        .map(pageToRoute),
       dataRoutes: [],
       i18n: config.i18n || undefined,
     }))
@@ -798,11 +804,7 @@ export default async function build(
             let isHybridAmp = false
             let ssgPageRoutes: string[] | null = null
 
-            const nonReservedPage = !page.match(
-              /^\/(_app|_error|_document|api(\/|$))/
-            )
-
-            if (nonReservedPage) {
+            if (!page.match(RESERVED_PAGE_REGEX)) {
               try {
                 let isPageStaticSpan = checkPageSpan.traceChild(
                   'is-page-static'
@@ -1574,6 +1576,29 @@ export default async function build(
       )
     }
 
+    const middlewareManifest: MiddlewareManifest = JSON.parse(
+      await promises.readFile(
+        path.join(
+          distDir,
+          isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
+          MIDDLEWARE_MANIFEST
+        ),
+        'utf8'
+      )
+    )
+
+    writeFileSync(
+      path.join(
+        distDir,
+        CLIENT_STATIC_FILES_PATH,
+        buildId,
+        '_middlewareManifest.js'
+      ),
+      `self.__MIDDLEWARE_MANIFEST=${devalue(
+        middlewareManifest.sortedMiddleware
+      )};self.__MIDDLEWARE_MANIFEST_CB&&self.__MIDDLEWARE_MANIFEST_CB()`
+    )
+
     const images = { ...config.images }
     const { deviceSizes, imageSizes } = images
     ;(images as any).sizes = [...deviceSizes, ...imageSizes]
@@ -1667,4 +1692,14 @@ function generateClientSsgManifest(
     path.join(distDir, CLIENT_STATIC_FILES_PATH, buildId, '_ssgManifest.js'),
     clientSsgManifestContent
   )
+}
+
+function pageToRoute(page: string) {
+  const routeRegex = getRouteRegex(page)
+  return {
+    page,
+    regex: normalizeRouteRegex(routeRegex.re.source),
+    routeKeys: routeRegex.routeKeys,
+    namedRegex: routeRegex.namedRegex,
+  }
 }
