@@ -965,6 +965,13 @@ export default class Server {
         }
         const bubbleNoFallback = !!query._nextBubbleNoFallback
 
+        if (pathname.endsWith('/_edge')) {
+          await this.render404(req, res, parsedUrl)
+          return {
+            finished: true,
+          }
+        }
+
         if (pathname === '/api' || pathname.startsWith('/api/')) {
           delete query._nextBubbleNoFallback
 
