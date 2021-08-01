@@ -9,8 +9,8 @@ export async function adapter(params: {
   response?: ResponseData
   runtime?: { [key: string]: any }
 }) {
-  return new Promise<EdgeFunctionResult>((_resolveResponse) => {
-    const resolveResponse = edgeFunctionToMiddleware(_resolveResponse)
+  return new Promise<EdgeFunctionResult>((topResolve, topReject) => {
+    const resolveResponse = edgeFunctionToMiddleware(topResolve)
     let resolveHandler: {
       resolve: () => void
       reject: (err: Error) => void
@@ -54,7 +54,11 @@ export async function adapter(params: {
     Promise.resolve(params.handler(req, res, next))
       .then(resolveHandler!.resolve)
       .catch((error) => {
-        resolveHandler!.reject(error)
+        if (!res.finished) {
+          topReject(error)
+        } else {
+          resolveHandler!.reject(error)
+        }
       })
   })
 }
