@@ -838,11 +838,17 @@ export default async function getBaseWebpackConfig(
             context,
             request,
             dependencyType,
+            contextInfo,
             getResolve,
           }: {
             context: string
             request: string
             dependencyType: string
+            contextInfo: {
+              compiler: string
+              issuer: string
+              issuerLayer: string | null
+            }
             getResolve: (
               options: any
             ) => (
@@ -854,8 +860,12 @@ export default async function getBaseWebpackConfig(
                 resolveData?: { descriptionFileData?: { type?: any } }
               ) => void
             ) => void
-          }) =>
-            handleExternals(context, request, dependencyType, (options) => {
+          }) => {
+            if (dev && contextInfo.issuerLayer === 'edge') {
+              return Promise.resolve()
+            }
+            
+            return handleExternals(context, request, dependencyType, (options) => {
               const resolveFunction = getResolve(options)
               return (resolveContext: string, requestToResolve: string) =>
                 new Promise((resolve, reject) => {
@@ -872,7 +882,8 @@ export default async function getBaseWebpackConfig(
                     }
                   )
                 })
-            }),
+            })
+          },
         ]
       : [
           // When the 'serverless' target is used all node_modules will be compiled into the output bundles
@@ -894,7 +905,8 @@ export default async function getBaseWebpackConfig(
           : ({
               filename: '[name].js',
               // allow to split entrypoints
-              chunks: 'all',
+              chunks: ({ name }: any) =>
+                name.endsWith('_middleware') ? undefined : 'all',
               // size of files is not so relevant for server build
               // we want to prefer deduplication to load less code
               minSize: 1000,
