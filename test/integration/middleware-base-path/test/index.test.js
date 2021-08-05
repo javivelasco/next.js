@@ -8,7 +8,7 @@ import webdriver from 'next-webdriver'
 const context = {}
 context.appDir = join(__dirname, '../')
 
-describe('Edge middleware tests', () => {
+describe('Middleware base tests', () => {
   beforeAll(async () => {
     context.appPort = await findPort()
     context.app = await launchApp(context.appDir, context.appPort)
