@@ -24,6 +24,11 @@ export async function onEdgeRequest(
     next()
   }
 
+  if (req.url.pathname === '/responses/bad-status') {
+    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Secure Area"' })
+    res.end('Auth required')
+  }
+
   // Streams, ends the stream, streams again
   if (req.url.pathname === '/responses/stream-end-stream') {
     res.write('first stream')

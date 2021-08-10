@@ -24,15 +24,14 @@ describe('Middleware base tests', () => {
     })
     afterAll(() => killApp(context.app))
     rewriteTests()
-    //rewriteTests('/fr')
+    rewriteTests('/fr')
     redirectTests()
-    //redirectTests('/fr')
+    redirectTests('/fr')
     responseTests()
-    //responseTests('/fr')
+    responseTests('/fr')
     interfaceTests()
-    //interfaceTests('/fr')
+    interfaceTests('/fr')
   })
-  /*
   describe('production mode', () => {
     beforeAll(async () => {
       await nextBuild(context.appDir)
@@ -49,7 +48,6 @@ describe('Middleware base tests', () => {
     interfaceTests()
     interfaceTests('/fr')
   })
-  */
 })
 
 function rewriteTests(locale = '') {
@@ -275,6 +273,18 @@ function responseTests(locale = '') {
     const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(html).toBe('{"message":"hi!"}')
+  })
+
+  it('should respond with a 404 status code', async () => {
+    const res = await fetchViaHTTP(
+      context.appPort,
+      `${locale}/responses/bad-status`
+    )
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect(res.headers.get('x-middleware-count')).toBe('1')
+    expect(res.status).toBe(404)
+    expect(html).toBe('Auth required')
   })
 
   it('should render a React component', async () => {

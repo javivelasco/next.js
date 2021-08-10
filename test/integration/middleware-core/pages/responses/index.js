@@ -55,6 +55,10 @@ export default function Home({ message }) {
         <a>Stream React component</a>
       </Link>
       <div />
+      <Link href="/responses/bad-status">
+        <a>404</a>
+      </Link>
+      <div />
     </div>
   )
 }
