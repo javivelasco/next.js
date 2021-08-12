@@ -67,12 +67,12 @@ export function onEdgeRequest(
   }
 
   // Infinite loop
-  if (req.url.pathName === '/redirects/infinite-loop') {
-    res.redirect('/redirect/infinite-loop-1')
+  if (req.url.pathname === '/redirects/infinite-loop') {
+    res.redirect('/redirects/infinite-loop-1')
     next()
   }
-  if (req.url.pathName === '/redirects/infinite-loop-1') {
-    res.redirect('/redirect/infinite-loop')
+  if (req.url.pathname === '/redirects/infinite-loop-1') {
+    res.redirect('/redirects/infinite-loop')
     next()
   }
 

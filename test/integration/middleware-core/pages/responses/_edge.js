@@ -25,7 +25,8 @@ export async function onEdgeRequest(
   }
 
   if (req.url.pathname === '/responses/bad-status') {
-    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Secure Area"' })
+    res.status(401)
+    res.setHeaders({ 'WWW-Authenticate': 'Basic realm="Secure Area"' })
     res.end('Auth required')
   }
 
@@ -122,7 +123,7 @@ export async function onEdgeRequest(
   // Stream React component
   if (req.url.pathname === '/responses/react-stream') {
     res.write(renderToString(createElement('h1', {}, 'I am a stream')))
-    await sleep(2000)
+    await sleep(500)
     res.write(renderToString(createElement('p', {}, 'I am another stream')))
     res.end()
   }

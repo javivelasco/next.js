@@ -51,7 +51,7 @@ describe('Middleware base tests', () => {
 })
 
 function rewriteTests(locale = '') {
-  it('should write a response after chained executions', async () => {
+  it(`${locale} should write a response after chained executions`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/rewrites/rewrite-me-to-about-with-chained-sequence`
@@ -69,7 +69,7 @@ function rewriteTests(locale = '') {
     await browser.close()
   })
 
-  it('should add a cookie and rewrite to a/b test', async () => {
+  it(`${locale} should add a cookie and rewrite to a/b test`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/rewrites/rewrite-to-ab-test`
@@ -94,7 +94,7 @@ function rewriteTests(locale = '') {
     expect($('.title').text()).toBe(expectedText)
   })
 
-  it('should rewrite to about page', async () => {
+  it(`${locale} should rewrite to about page`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/rewrites/rewrite-me-to-about`
@@ -115,7 +115,7 @@ function rewriteTests(locale = '') {
     expect($('.title').text()).toBe('About Page')
   })
 
-  it('should rewrite to Vercel', async () => {
+  it(`${locale} should rewrite to Vercel`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/rewrites/rewrite-me-to-vercel`
@@ -129,7 +129,7 @@ function rewriteTests(locale = '') {
     )
   })
 
-  it('should rewrite to the first reroute (Vercel and not Github) ', async () => {
+  it(`${locale} should rewrite to the first reroute (Vercel and not Github) `, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/rewrites/rewrite-me-external-twice`
@@ -141,7 +141,7 @@ function rewriteTests(locale = '') {
     )
   })
 
-  it('should rewrite without hard navigation', async () => {
+  it(`${locale} should rewrite without hard navigation`, async () => {
     const browser = await webdriver(context.appPort, '/rewrites/')
     await browser.eval('window.__SAME_PAGE = true')
     await browser.elementByCss('#link-with-rewritten-url').click()
@@ -153,7 +153,7 @@ function rewriteTests(locale = '') {
 }
 
 function redirectTests(locale = '') {
-  it('should redirect', async () => {
+  it(`${locale} should redirect`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/redirects/old-home`
@@ -174,7 +174,7 @@ function redirectTests(locale = '') {
     expect($('.title').text()).toBe('Welcome to a new page')
   })
 
-  it('should redirect cleanly with the original url param', async () => {
+  it(`${locale} should redirect cleanly with the original url param`, async () => {
     const browser = await webdriver(
       context.appPort,
       `${locale}/redirects/blank-page?foo=bar`
@@ -190,23 +190,30 @@ function redirectTests(locale = '') {
     }
   })
 
-  it('should redirect with a max cap of 5 redirects', async () => {
+  it(`${locale} should redirect multiple times`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/redirects/redirect-me-alot`
     )
-    expect(res.headers.get('x-middleware-count')).toBe('5')
-  })
-
-  it('should redirect with a max cap of 5 redirects (infinite-loop)', async () => {
-    const res = await fetchViaHTTP(
+    const browser = await webdriver(
       context.appPort,
-      `${locale}/redirects/infinite-loop`
+      `${locale}/redirects/redirect-me-alot`
     )
-    expect(res.headers.get('x-middleware-count')).toBe('5')
+    try {
+      expect(await browser.eval(`window.location.pathname`)).toBe(
+        `${locale}/redirects/new-home`
+      )
+    } finally {
+      await browser.close()
+    }
+    const html = await res.text()
+    const $ = cheerio.load(html)
+    expect($('.title').text()).toBe('Welcome to a new page')
+
+    expect(res.headers.get('x-middleware-count')).toBe('1')
   })
 
-  it('should redirect only once to Google and not stream a response', async () => {
+  it(`${locale} should redirect only once to Google and not stream a response`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/redirects/redirect-to-google-stream`
@@ -217,7 +224,7 @@ function redirectTests(locale = '') {
     expect(html).not.toBe('whoops!')
   })
 
-  it('should redirect only once to Google and not respond with body', async () => {
+  it(`${locale} should redirect only once to Google and not respond with body`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/redirects/redirect-to-google`
@@ -227,10 +234,21 @@ function redirectTests(locale = '') {
     expect($('head > title').text()).toBe('Google')
     expect(html).not.toBe('whoops!')
   })
+
+  it(`${locale} should redirect (infinite-loop)`, async () => {
+    try {
+      await fetchViaHTTP(context.appPort, `${locale}/redirects/infinite-loop`)
+      throw new Error(
+        'Infinite loop did not throw ERR_TOO_MANY_REDIRECTS error'
+      )
+    } catch (e) {
+      expect(e.type).toBe('max-redirect')
+    }
+  })
 }
 
 function responseTests(locale = '') {
-  it('should stream a response', async () => {
+  it(`${locale} should stream a response`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/stream-a-response`
@@ -240,7 +258,7 @@ function responseTests(locale = '') {
     expect(html).toBe('this is a streamed response')
   })
 
-  it('should only stream once', async () => {
+  it(`${locale} should only stream once`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/stream-end-stream`
@@ -251,7 +269,7 @@ function responseTests(locale = '') {
     expect(html).toBe('first stream')
   })
 
-  it('should stream a body and not have a certain header', async () => {
+  it(`${locale} should stream a body and not have a certain header`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/stream-header-end`
@@ -264,7 +282,7 @@ function responseTests(locale = '') {
     expect(html).toBe('hello world')
   })
 
-  it('should respond with a body', async () => {
+  it(`${locale} should respond with a body`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/send-response`
@@ -275,7 +293,7 @@ function responseTests(locale = '') {
     expect(html).toBe('{"message":"hi!"}')
   })
 
-  it('should respond with a 404 status code', async () => {
+  it(`${locale} should respond with a 401 status code`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/bad-status`
@@ -283,11 +301,11 @@ function responseTests(locale = '') {
     const html = await res.text()
     const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(401)
     expect(html).toBe('Auth required')
   })
 
-  it('should render a React component', async () => {
+  it(`${locale} should render a React component`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/react?name=jack`
@@ -300,7 +318,7 @@ function responseTests(locale = '') {
     )
   })
 
-  it('should stream a React component', async () => {
+  it(`${locale} should stream a React component`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/react-stream`
@@ -313,7 +331,7 @@ function responseTests(locale = '') {
     )
   })
 
-  it('should stream a long response', async () => {
+  it(`${locale} should stream a long response`, async () => {
     const res = await fetchViaHTTP(context.appPort, '/responses/stream-long')
     const html = await res.text()
     expect(res.headers.get('x-middleware-count')).toBe('1')
@@ -322,7 +340,7 @@ function responseTests(locale = '') {
     )
   })
 
-  it('should redirect only once to Google and not stream a response', async () => {
+  it(`${locale} should redirect only once to Google and not stream a response`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/redirect-stream`
@@ -333,14 +351,14 @@ function responseTests(locale = '') {
     expect(html).not.toBe('whoops!')
   })
 
-  it('should render the right content via SSR', async () => {
+  it(`${locale} should render the right content via SSR`, async () => {
     const res = await fetchViaHTTP(context.appPort, '/responses/')
     const html = await res.text()
     const $ = cheerio.load(html)
     expect($('.title').text()).toBe('Hello World')
   })
 
-  it('should respond with a header', async () => {
+  it(`${locale} should respond with a header`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/header`
@@ -348,7 +366,7 @@ function responseTests(locale = '') {
     expect(res.headers.get('x-first-header')).toBe('valid')
   })
 
-  it('should respond with 2 nested headers', async () => {
+  it(`${locale} should respond with 2 nested headers`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/header?nested-header=true`
@@ -357,7 +375,7 @@ function responseTests(locale = '') {
     expect(res.headers.get('x-nested-header')).toBe('valid')
   })
 
-  it('should only recieve the first body', async () => {
+  it(`${locale} should only recieve the first body`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/body-end-header`
@@ -369,7 +387,7 @@ function responseTests(locale = '') {
     expect(html).toBe('hello world')
   })
 
-  it('should only recieve the first body', async () => {
+  it(`${locale} should only recieve the first body`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/body-end-body`
@@ -380,7 +398,7 @@ function responseTests(locale = '') {
     expect(html).toBe('hello world')
   })
 
-  it('should redirect to Google and not send a body', async () => {
+  it(`${locale} should redirect to Google and not send a body`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/responses/redirect-body`
@@ -393,7 +411,7 @@ function responseTests(locale = '') {
 }
 
 function interfaceTests(locale = '') {
-  it('should validate request url parameters from a static route', async () => {
+  it(`${locale} should validate request url parameters from a static route`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/interface/static`
@@ -407,7 +425,7 @@ function interfaceTests(locale = '') {
     }
   })
 
-  it('should validate request url parameters from a dynamic route with param 1', async () => {
+  it(`${locale} should validate request url parameters from a dynamic route with param 1`, async () => {
     const res = await fetchViaHTTP(context.appPort, `${locale}/interface/1`)
     //expect(res.headers.get('req-url-basepath')).toBe('')
     expect(res.headers.get('req-url-pathname')).toBe('/interface/1')
@@ -420,7 +438,7 @@ function interfaceTests(locale = '') {
     }
   })
 
-  it('should validate request url parameters from a dynamic route with param abc123', async () => {
+  it(`${locale} should validate request url parameters from a dynamic route with param abc123`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/interface/abc123`
@@ -436,7 +454,7 @@ function interfaceTests(locale = '') {
     }
   })
 
-  it('should validate request url parameters from a dynamic route with param abc123 and query foo = bar', async () => {
+  it(`${locale} should validate request url parameters from a dynamic route with param abc123 and query foo = bar`, async () => {
     const res = await fetchViaHTTP(
       context.appPort,
       `${locale}/interface/abc123?foo=bar`
