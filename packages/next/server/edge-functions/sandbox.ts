@@ -1,6 +1,6 @@
 import type { EdgeFunctionResult } from './types'
 import type { RequestData, ResponseData } from './types'
-import { TransformStream } from 'web-streams-polyfill/ponyfill'
+import { TransformStream, ReadableStream } from 'web-streams-polyfill/ponyfill'
 import { readFileSync } from 'fs'
 import { dirname } from 'path'
 import vm from 'vm'
@@ -60,6 +60,14 @@ export async function run(params: {
     URLSearchParams,
     TextEncoder,
     TransformStream,
+    ReadableStream,
+    setTimeout,
+    clearTimeout,
+    process: {
+      env: {
+        NODE_ENV: process.env.NODE_ENV,
+      },
+    },
   })
 
   const m = _require(params.path, params.path)
