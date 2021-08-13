@@ -6,7 +6,7 @@ export function onEdgeRequest(
   }
 ) {
   // Redirect cleanly with url params
-  if (req.url.query['foo'] == 'bar') {
+  if (req.url.query['foo'] === 'bar') {
     res.redirect('/redirects/new-home')
     next()
   }

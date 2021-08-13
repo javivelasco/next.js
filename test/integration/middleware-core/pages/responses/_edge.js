@@ -66,13 +66,13 @@ export async function onEdgeRequest(
   }
 
   // Sends a header
-  if (req.url.pathname == '/responses/header') {
+  if (req.url.pathname === '/responses/header') {
     res.setHeaders({ 'x-first-header': 'valid' })
     next()
   }
 
   // Header based on query param
-  if (req.url.query['nested-header'] == 'true') {
+  if (req.url.query['nested-header'] === 'true') {
     res.setHeaders({ 'x-nested-header': 'valid' })
     next()
   }

@@ -30,7 +30,7 @@ export function onEdgeRequest(
   }
 
   // Adds a cookie and rewrites to AB test
-  if (req.url.pathname == '/rewrites/rewrite-to-ab-test') {
+  if (req.url.pathname === '/rewrites/rewrite-to-ab-test') {
     let bucket = req.cookies.bucket
     if (!bucket) {
       bucket = Math.random() >= 0.5 ? 'a' : 'b'

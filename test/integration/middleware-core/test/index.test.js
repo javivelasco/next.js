@@ -77,7 +77,7 @@ function rewriteTests(locale = '') {
     const html = await res.text()
     const $ = cheerio.load(html)
     const bucket = getCookieFromResponse(res, 'bucket')
-    const expectedText = bucket == 'a' ? 'Welcome Page A' : 'Welcome Page B'
+    const expectedText = bucket === 'a' ? 'Welcome Page A' : 'Welcome Page B'
     const browser = await webdriver(
       context.appPort,
       `${locale}/rewrites/rewrite-to-ab-test`
@@ -236,14 +236,9 @@ function redirectTests(locale = '') {
   })
 
   it(`${locale} should redirect (infinite-loop)`, async () => {
-    try {
-      await fetchViaHTTP(context.appPort, `${locale}/redirects/infinite-loop`)
-      throw new Error(
-        'Infinite loop did not throw ERR_TOO_MANY_REDIRECTS error'
-      )
-    } catch (e) {
-      expect(e.type).toBe('max-redirect')
-    }
+    await expect(
+      fetchViaHTTP(context.appPort, `${locale}/redirects/infinite-loop`)
+    ).rejects.toThrow()
   })
 }
 
@@ -264,7 +259,6 @@ function responseTests(locale = '') {
       `${locale}/responses/stream-end-stream`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(html).toBe('first stream')
   })
@@ -275,7 +269,6 @@ function responseTests(locale = '') {
       `${locale}/responses/stream-header-end`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(res.headers.get('x-machina')).not.toBe('hello')
     expect(res.headers.get('x-pre-header')).toBe('1')
@@ -288,7 +281,6 @@ function responseTests(locale = '') {
       `${locale}/responses/send-response`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(html).toBe('{"message":"hi!"}')
   })
@@ -299,7 +291,6 @@ function responseTests(locale = '') {
       `${locale}/responses/bad-status`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(res.status).toBe(401)
     expect(html).toBe('Auth required')
@@ -311,7 +302,6 @@ function responseTests(locale = '') {
       `${locale}/responses/react?name=jack`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(html).toBe(
       '<h1 data-reactroot="">SSR with React on the edge! Hello, jack</h1>'
@@ -324,7 +314,6 @@ function responseTests(locale = '') {
       `${locale}/responses/react-stream`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(html).toBe(
       '<h1 data-reactroot="">I am a stream</h1><p data-reactroot="">I am another stream</p>'
@@ -381,7 +370,6 @@ function responseTests(locale = '') {
       `${locale}/responses/body-end-header`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(res.headers.get('x-late')).not.toBe('valid')
     expect(html).toBe('hello world')
@@ -393,7 +381,6 @@ function responseTests(locale = '') {
       `${locale}/responses/body-end-body`
     )
     const html = await res.text()
-    const $ = cheerio.load(html)
     expect(res.headers.get('x-middleware-count')).toBe('1')
     expect(html).toBe('hello world')
   })
@@ -420,7 +407,7 @@ function interfaceTests(locale = '') {
     expect(res.headers.get('req-url-pathname')).toBe('/interface/static')
     expect(res.headers.get('req-url-params')).not.toBe('{}')
     expect(res.headers.get('req-url-query')).not.toBe('bar')
-    if (locale != '') {
+    if (locale !== '') {
       expect(res.headers.get('req-url-locale')).toBe(locale.slice(1))
     }
   })
@@ -433,7 +420,7 @@ function interfaceTests(locale = '') {
     expect(res.headers.get('req-url-page')).toBe('/interface/[id]')
     expect(res.headers.get('req-url-query')).not.toBe('bar')
 
-    if (locale != '') {
+    if (locale !== '') {
       expect(res.headers.get('req-url-locale')).toBe(locale.slice(1))
     }
   })
@@ -449,7 +436,7 @@ function interfaceTests(locale = '') {
     expect(res.headers.get('req-url-page')).toBe('/interface/[id]')
     expect(res.headers.get('req-url-query')).not.toBe('bar')
 
-    if (locale != '') {
+    if (locale !== '') {
       expect(res.headers.get('req-url-locale')).toBe(locale.slice(1))
     }
   })
@@ -464,7 +451,7 @@ function interfaceTests(locale = '') {
     expect(res.headers.get('req-url-params')).toBe('{"id":"abc123"}')
     expect(res.headers.get('req-url-page')).toBe('/interface/[id]')
     expect(res.headers.get('req-url-query')).toBe('bar')
-    if (locale != '') {
+    if (locale !== '') {
       expect(res.headers.get('req-url-locale')).toBe(locale.slice(1))
     }
   })
@@ -476,7 +463,7 @@ function getCookieFromResponse(res, cookieName) {
   for (const cookie of cookieArray) {
     let individualCookieParams = cookie.split(';')
     let individualCookie = individualCookieParams[0].split('=')
-    if (individualCookie[0] == cookieName) {
+    if (individualCookie[0] === cookieName) {
       return individualCookie[1]
     }
   }
