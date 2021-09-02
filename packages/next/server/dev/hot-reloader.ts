@@ -33,6 +33,7 @@ import { CustomRoutes } from '../../lib/load-custom-routes'
 import { DecodeError } from '../../shared/lib/utils'
 import { Span, trace } from '../../trace'
 import isError from '../../lib/is-error'
+import { clearSandboxCache } from '../edge-functions/sandbox'
 
 export async function renderScriptError(
   res: ServerResponse,
@@ -407,10 +408,14 @@ export default class HotReloader {
               isClientKey ? 'client'.length : 'server'.length
             )
             const isMiddleware = page.match(MIDDLEWARE_ROUTE)
-            const isServerOnly = page.match(API_ROUTE) || isMiddleware
-            if (isClientCompilation && isServerOnly) {
+            if (isClientCompilation && page.match(API_ROUTE) && !isMiddleware) {
               return
             }
+
+            if (!isClientCompilation && isMiddleware) {
+              return
+            }
+
             const { bundlePath, absolutePagePath, dispose } = entries[pageKey]
             const pageExists = !dispose && (await isWriteable(absolutePagePath))
             if (!pageExists) {
@@ -427,26 +432,29 @@ export default class HotReloader {
 
             if (isClientCompilation && isMiddleware) {
               entrypoints[bundlePath] = {
+                filename: 'server/[name].js',
                 import: `edge-function-loader?${stringify(pageLoaderOpts)}!`,
                 layer: 'edge',
+                library: {
+                  type: 'assign',
+                  name: ['_NEXT_ENTRIES', `edge_[name]`],
+                },
               }
+            } else if (isClientCompilation) {
+              entrypoints[bundlePath] = finalizeEntrypoint(
+                bundlePath,
+                `next-client-pages-loader?${stringify(pageLoaderOpts)}!`,
+                false
+              )
             } else {
-              if (isClientCompilation) {
-                entrypoints[bundlePath] = finalizeEntrypoint(
-                  bundlePath,
-                  `next-client-pages-loader?${stringify(pageLoaderOpts)}!`,
-                  false
-                )
-              } else {
-                let request = relative(config.context!, absolutePagePath)
-                if (!isAbsolute(request) && !request.startsWith('../'))
-                  request = `./${request}`
-                entrypoints[bundlePath] = finalizeEntrypoint(
-                  bundlePath,
-                  request,
-                  true
-                )
-              }
+              let request = relative(config.context!, absolutePagePath)
+              if (!isAbsolute(request) && !request.startsWith('../'))
+                request = `./${request}`
+              entrypoints[bundlePath] = finalizeEntrypoint(
+                bundlePath,
+                request,
+                true
+              )
             }
           })
         )
@@ -511,6 +519,30 @@ export default class HotReloader {
       (stats) => {
         this.serverError = null
         this.serverStats = stats
+
+        const serverOnlyChanges = difference<string>(
+          changedServerPages,
+          changedClientPages
+        )
+        changedClientPages.clear()
+        changedServerPages.clear()
+
+        if (serverOnlyChanges.length > 0) {
+          this.send({
+            event: 'serverOnlyChanges',
+            pages: serverOnlyChanges.map((pg) =>
+              denormalizePagePath(pg.substr('pages'.length))
+            ),
+          })
+        }
+
+        const middlewareChanges = Array.from(changedClientPages).filter(
+          (name) => name.endsWith('_middleware')
+        )
+
+        if (middlewareChanges.length > 0) {
+          clearSandboxCache()
+        }
 
         const { compilation } = stats
 

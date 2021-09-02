@@ -322,6 +322,20 @@ export default async function getBaseWebpackConfig(
             hasJsxRuntime: true,
           },
         },
+    babelEdge: {
+      loader: require.resolve('./babel/loader/index'),
+      options: {
+        configFile: babelConfigFile,
+        isServer: true,
+        distDir,
+        pagesDir,
+        cwd: dir,
+        cache: false,
+        development: dev,
+        hasReactRefresh: false,
+        hasJsxRuntime: true,
+      },
+    },
   }
 
   const babelIncludeRegexes: RegExp[] = [
@@ -576,7 +590,8 @@ export default async function getBaseWebpackConfig(
         chunks: (chunk) => !/^(polyfills|main|pages\/_app)$/.test(chunk.name),
         cacheGroups: {
           framework: {
-            chunks: 'all',
+            chunks: (chunk: webpack.compilation.Chunk) =>
+              !/^(.+\/)?_middleware$/.test(chunk.name),
             name: 'framework',
             // This regex ignores nested copies of framework libraries so they're
             // bundled with their issuer.
@@ -625,6 +640,12 @@ export default async function getBaseWebpackConfig(
             name: 'commons',
             minChunks: totalPages,
             priority: 20,
+          },
+          middleware: {
+            chunks: (chunk: webpack.compilation.Chunk) =>
+              /^(.+\/)?_middleware$/.test(chunk.name),
+            filename: 'server/edge-chunks/[name].js',
+            minChunks: 2,
           },
         },
         maxInitialRequests: 25,
@@ -839,17 +860,11 @@ export default async function getBaseWebpackConfig(
             context,
             request,
             dependencyType,
-            contextInfo,
             getResolve,
           }: {
             context: string
             request: string
             dependencyType: string
-            contextInfo: {
-              compiler: string
-              issuer: string
-              issuerLayer: string | null
-            }
             getResolve: (
               options: any
             ) => (
@@ -861,12 +876,8 @@ export default async function getBaseWebpackConfig(
                 resolveData?: { descriptionFileData?: { type?: any } }
               ) => void
             ) => void
-          }) => {
-            if (dev && contextInfo.issuerLayer === 'edge') {
-              return Promise.resolve()
-            }
-            
-            return handleExternals(context, request, dependencyType, (options) => {
+          }) =>
+            handleExternals(context, request, dependencyType, (options) => {
               const resolveFunction = getResolve(options)
               return (resolveContext: string, requestToResolve: string) =>
                 new Promise((resolve, reject) => {
@@ -883,8 +894,7 @@ export default async function getBaseWebpackConfig(
                     }
                   )
                 })
-            })
-          },
+            }),
         ]
       : [
           // When the 'serverless' target is used all node_modules will be compiled into the output bundles
@@ -906,16 +916,20 @@ export default async function getBaseWebpackConfig(
           : ({
               filename: '[name].js',
               // allow to split entrypoints
-              chunks: ({ name }: any) =>
-                name.endsWith('_middleware') ? undefined : 'all',
+              chunks: ({ name }: any) => !name?.endsWith('_middleware'),
               // size of files is not so relevant for server build
               // we want to prefer deduplication to load less code
               minSize: 1000,
             } as any)
         : splitChunksConfig,
       runtimeChunk: isServer
-        ? { name: ({ name }) => name.endsWith('_middleware') ? undefined : 'webpack-runtime' }
-        : { name: CLIENT_STATIC_FILES_RUNTIME_WEBPACK },
+        ? undefined
+        : {
+            name: ({ name }) =>
+              name.endsWith('_middleware')
+                ? '../../server/edge-runtime'
+                : CLIENT_STATIC_FILES_RUNTIME_WEBPACK,
+          },
       minimize: !(dev || isServer),
       minimizer: [
         // Minify JavaScript
@@ -1055,6 +1069,11 @@ export default async function getBaseWebpackConfig(
                 url: true,
               },
               use: defaultLoaders.babel,
+            },
+            {
+              ...codeCondition,
+              issuerLayer: 'edge',
+              use: defaultLoaders.babelEdge,
             },
             {
               ...codeCondition,
@@ -1246,8 +1265,8 @@ export default async function getBaseWebpackConfig(
       isServerless && isServer && new ServerlessPlugin(),
       isServer &&
         new PagesManifestPlugin({ serverless: isLikeServerless, dev }),
-      isServer && new MiddlewareManifestPlugin({ dev }),
-      dev && isServer && new EdgeFunctionPlugin(),
+      !isServer && new MiddlewareManifestPlugin({ dev }),
+      dev && !isServer && new EdgeFunctionPlugin(),
       isServer && new NextJsSsrImportPlugin(),
       !isServer &&
         new BuildManifestPlugin({
@@ -1300,7 +1319,7 @@ export default async function getBaseWebpackConfig(
 
   webpack5Config.experiments = {
     layers: true,
-    cacheUnaffected: true,
+    cacheUnaffected: false, // Disabled for now due to a webpack bug
   }
 
   webpack5Config.module!.parser = {
@@ -1312,6 +1331,10 @@ export default async function getBaseWebpackConfig(
     asset: {
       filename: 'static/media/[name].[hash:8][ext]',
     },
+  }
+
+  if (!isServer) {
+    webpack5Config.output!.enabledLibraryTypes = ['assign']
   }
 
   if (dev) {
