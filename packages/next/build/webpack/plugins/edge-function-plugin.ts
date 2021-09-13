@@ -11,6 +11,7 @@ export interface MiddlewareManifest {
   sortedMiddleware: string[]
   middleware: {
     [page: string]: {
+      env: string[]
       files: string[]
       name: string
       page: string
@@ -26,7 +27,11 @@ export default class EdgeFunctionPlugin {
     this.dev = dev
   }
 
-  createAssets(compilation: any, assets: any) {
+  createAssets(
+    compilation: any,
+    assets: any,
+    envPerRoute: Map<string, string[]>
+  ) {
     const entrypoints = compilation.entrypoints
     const middlewareManifest: MiddlewareManifest = {
       sortedMiddleware: [],
@@ -46,6 +51,7 @@ export default class EdgeFunctionPlugin {
         .filter((file: string) => !file.endsWith('.hot-update.js'))
 
       middlewareManifest.middleware[location] = {
+        env: envPerRoute.get(entrypoint.name)!,
         files,
         name: entrypoint.name,
         page: location,
@@ -66,49 +72,62 @@ export default class EdgeFunctionPlugin {
     compiler.hooks.compilation.tap(
       PLUGIN_NAME,
       (compilation, { normalModuleFactory }) => {
+        const envPerRoute = new Map<string, string[]>()
+
         compilation.hooks.finishModules.tap(PLUGIN_NAME, () => {
           const { moduleGraph } = compilation as any
-          const edgeEntries = new Set<webpack.Module>()
-
-          const addEdgeEntriesFromDependency = (dep: any) => {
-            const module = moduleGraph.getModule(dep)
-            if (module) {
-              edgeEntries.add(module)
-            }
-          }
-
+          envPerRoute.clear()
           for (const [name, info] of compilation.entries) {
             if (name.endsWith('/_middleware')) {
+              const edgeEntries = new Set<webpack.Module>()
+              const env = new Set<string>()
+
+              const addEdgeEntriesFromDependency = (dep: any) => {
+                const module = moduleGraph.getModule(dep)
+                if (module) {
+                  edgeEntries.add(module)
+                }
+              }
+
               info.dependencies.forEach(addEdgeEntriesFromDependency)
               info.includeDependencies.forEach(addEdgeEntriesFromDependency)
-            }
-          }
 
-          const queue = new Set(edgeEntries)
-          for (const module of queue) {
-            if (
-              (module as any).buildInfo &&
-              (module as any).buildInfo.usingIndirectEval &&
-              !(module as any).resource.includes('react.development') &&
-              !(module as any).resource.includes(
-                'react-dom-server.browser.development'
-              )
-            ) {
-              compilation.errors.push(
-                new Error(
-                  `Running \`eval\` is not allowed at ${
-                    (module as any).resource
-                  }`
-                )
-              )
-            }
+              const queue = new Set(edgeEntries)
+              for (const module of queue) {
+                const buildInfo = (module as any).buildInfo
+                if (buildInfo) {
+                  if (
+                    buildInfo.usingIndirectEval &&
+                    !(module as any).resource.includes('react.development') &&
+                    !(module as any).resource.includes(
+                      'react-dom-server.browser.development'
+                    )
+                  ) {
+                    // @ts-ignore TODO: Remove ignore when webpack 5 is stable
+                    const error = new webpack.WebpackError(
+                      `Running \`eval\` is not allowed in edge middleware ${name}`
+                    )
+                    error.module = module
+                    compilation.errors.push(error)
+                  }
 
-            for (const connection of moduleGraph.getOutgoingConnections(
-              module
-            )) {
-              if (connection.module) {
-                queue.add(connection.module)
+                  if (buildInfo.nextUsedEnvVars !== undefined) {
+                    for (const envName of buildInfo.nextUsedEnvVars) {
+                      env.add(envName)
+                    }
+                  }
+                }
+
+                for (const connection of moduleGraph.getOutgoingConnections(
+                  module
+                )) {
+                  if (connection.module) {
+                    queue.add(connection.module)
+                  }
+                }
               }
+
+              envPerRoute.set(name, Array.from(env))
             }
           }
         })
@@ -126,6 +145,31 @@ export default class EdgeFunctionPlugin {
           parser.hooks.expression
             .for('global.Function')
             .tap(PLUGIN_NAME, flagModule)
+
+          const memberChainHandler = (_expr: any, members: string[]) => {
+            if (!parser.state.module || parser.state.module.layer !== 'edge') {
+              return
+            }
+
+            if (members.length >= 2 && members[0] === 'env') {
+              const envName = members[1]
+              const { buildInfo } = parser.state.module
+              if (buildInfo.nextUsedEnvVars === undefined) {
+                buildInfo.nextUsedEnvVars = new Set()
+              }
+
+              buildInfo.nextUsedEnvVars.add(envName)
+              return true
+            }
+          }
+
+          parser.hooks.callMemberChain
+            .for('process')
+            .tap(PLUGIN_NAME, memberChainHandler)
+
+          parser.hooks.expressionMemberChain
+            .for('process')
+            .tap(PLUGIN_NAME, memberChainHandler)
         }
 
         normalModuleFactory.hooks.parser
@@ -148,7 +192,7 @@ export default class EdgeFunctionPlugin {
             stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONS,
           },
           (assets: any) => {
-            this.createAssets(compilation, assets)
+            this.createAssets(compilation, assets, envPerRoute)
           }
         )
       }
