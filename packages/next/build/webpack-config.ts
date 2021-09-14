@@ -324,15 +324,15 @@ export default async function getBaseWebpackConfig(
     babelEdge: {
       loader: require.resolve('./babel/loader/index'),
       options: {
-        configFile: babelConfigFile,
-        isServer: true,
-        distDir,
-        pagesDir,
-        cwd: dir,
         cache: false,
+        configFile: babelConfigFile,
+        cwd: dir,
         development: dev,
-        hasReactRefresh: false,
+        distDir,
         hasJsxRuntime: true,
+        hasReactRefresh: false,
+        isServer: true,
+        pagesDir,
       },
     },
   }
