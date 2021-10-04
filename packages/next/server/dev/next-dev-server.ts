@@ -580,7 +580,7 @@ export default class DevServer extends Server {
   }
 
   protected async ensureMiddleware(pathname: string) {
-    return this.hotReloader!.ensurePage(getMiddlewareFilepath(pathname))
+    await this.hotReloader!.ensurePage(getMiddlewareFilepath(pathname))
   }
 
   generateRoutes() {

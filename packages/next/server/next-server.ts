@@ -97,16 +97,19 @@ import ResponseCache, {
   ResponseCacheEntry,
   ResponseCacheValue,
 } from './response-cache'
-import { NextConfigComplete } from './config-shared'
-import { parseNextUrl } from '../shared/lib/router/utils/parse-next-url'
+import {
+  ParsedNextUrl,
+  parseNextUrl,
+} from '../shared/lib/router/utils/parse-next-url'
 import isError from '../lib/is-error'
 import { getMiddlewareInfo } from './require'
 import { parseUrl as simpleParseUrl } from '../shared/lib/router/utils/parse-url'
 import { run } from './edge-functions/sandbox'
-import type { EdgeFunctionResult } from './edge-functions'
+import type { EdgeFunctionResult } from './edge-functions-whatwg'
+import type { I18NConfig, NextConfigComplete } from './config-shared'
 import type { MiddlewareManifest } from '../build/webpack/plugins/edge-function-plugin'
 import type { ParsedUrl } from '../shared/lib/router/utils/parse-url'
-import type { RequestData, ResponseData } from './edge-functions/types'
+import type { ResponseData } from './edge-functions/types'
 
 const getCustomRouteMatcher = pathMatch(true)
 
@@ -594,19 +597,27 @@ export default class Server {
   protected async ensureMiddleware(_pathname: string) {}
 
   protected async runMiddleware(params: {
-    request: RequestData
-    response?: ResponseData
-    prevCalls?: number
+    parsedUrl: ParsedNextUrl
+    request: {
+      config?: {
+        basePath?: string
+        i18n?: I18NConfig | null
+        trailingSlash?: boolean
+      }
+      geo?: { city?: string; country?: string; region?: string }
+      headers: Headers
+      ip?: string
+      method: string
+      url: string
+    }
   }): Promise<EdgeFunctionResult> {
-    const req = params.request
-    const res = params.response
-    const url = { ...req.url }
+    const url = { ...params.parsedUrl }
 
-    if (await this.hasPage(req.url.pathname)) {
-      url.page = req.url.pathname
+    if (await this.hasPage(url.pathname)) {
+      url.page = url.pathname
     } else if (this.dynamicRoutes) {
       for (const dynamicRoute of this.dynamicRoutes) {
-        const matchParams = dynamicRoute.match(req.url.pathname)
+        const matchParams = dynamicRoute.match(url.pathname)
         if (matchParams) {
           url.page = dynamicRoute.page
           url.params = matchParams
@@ -651,16 +662,14 @@ export default class Server {
           name: middlewareInfo.name,
           paths: middlewareInfo.paths,
           request: {
-            headers: req.headers,
-            method: req.method,
-            url,
-          },
-          response: {
-            headers: result?.response.headers || res?.headers,
+            headers: params.request.headers,
+            method: params.request.method,
+            config: params.request.config,
+            url: params.request.url,
           },
         })
 
-        result.promise.catch((error) => {
+        result.waitUntil.catch((error) => {
           console.error(`Error after middleware response:`)
           console.error(error)
         })
@@ -1093,13 +1102,19 @@ export default class Server {
         type: 'route',
         name: 'middleware catchall',
         fn: async (req, res, _params, parsed) => {
-          const url = parseNextUrl({
-            headers: req.headers,
-            nextConfig: this.nextConfig,
+          // We need to parse the Next.JS URL to match the middleware
+          const parsedURL = parseNextUrl({
             url: (req as any).__NEXT_INIT_URL,
+            headers: req.headers,
+            nextConfig: {
+              basePath: this.nextConfig.basePath,
+              i18n: this.nextConfig.i18n,
+              trailingSlash: this.nextConfig.trailingSlash,
+            },
           })
 
-          if (!this.middleware?.some((m) => m.match(url.pathname))) {
+          // If there is no middleware we skip it
+          if (!this.middleware?.some((m) => m.match(parsedURL.pathname))) {
             return { finished: false }
           }
 
@@ -1107,10 +1122,12 @@ export default class Server {
 
           try {
             result = await this.runMiddleware({
+              parsedUrl: parsedURL,
               request: {
                 headers: new Headers(toWHATWGLikeHeaders(req.headers)),
                 method: req.method || 'GET',
-                url,
+                config: this.nextConfig,
+                url: (req as any).__NEXT_INIT_URL,
               },
             })
           } catch (err) {
@@ -1121,79 +1138,72 @@ export default class Server {
             return { finished: true }
           }
 
-          const preflight =
-            req.method === 'HEAD' && req.headers['x-middleware-preflight']
+          // Now we must apply the effects depending on the result
+          // const preflight =
+          //   req.method === 'HEAD' && req.headers['x-middleware-preflight']
 
-          for (const [key, value] of result.response.headers.entries()) {
-            if (preflight || !key.startsWith('x-middleware-')) {
-              res.setHeader(key, value)
-            }
-          }
+          // for (const [key, value] of result.response.headers.entries()) {
+          //   if (preflight || !key.startsWith('x-middleware-')) {
+          //     res.setHeader(key, value)
+          //   }
+          // }
 
-          if (preflight) {
-            res.writeHead(200)
-            res.end()
-            return {
-              finished: true,
-            }
-          }
+          // if (preflight) {
+          //   res.writeHead(200)
+          //   res.end()
+          //   return {
+          //     finished: true,
+          //   }
+          // }
 
-          if (result.event === 'streaming') {
-            const reader = result.response.readable.getReader()
-            res.writeHead(result.response.statusCode)
+          // const location = result.response.headers.get('Location')
+          // if (location) {
+          //   console.log('It was a redirect');
+          //   res.statusCode = result.response.status
+          //   res.setHeader('Location', location)
+          //   if (res.statusCode === 308) {
+          //     res.setHeader('Refresh', `0;url=${location}`)
+          //   }
 
-            while (true) {
-              let { value, done } = await reader.read()
-              if (done) break
-              res.write(value)
-            }
+          //   res.end()
+          //   return {
+          //     finished: true,
+          //   }
+          // }
 
-            res.end()
-            return {
-              finished: true,
-            }
-          }
+          // const rewrite = result.response.headers.get('x-middleware-rewrite')
+          // if (rewrite) {
+          //   console.log('It was a rewrite');
+          //   const rewriteParsed = simpleParseUrl(rewrite)
+          //   if (rewriteParsed.protocol) {
+          //     return proxyRequest(req, res, rewriteParsed)
+          //   }
 
-          const location = result.response.headers.get('x-middleware-redirect')
-          if (location) {
-            res.statusCode = result.response.statusCode
-            res.setHeader('Location', location)
-            if (res.statusCode === 308) {
-              res.setHeader('Refresh', `0;url=${location}`)
-            }
+          //   ;(req as any)._nextRewroteUrl = rewrite
+          //   ;(req as any)._nextDidRewrite =
+          //     (req as any)._nextRewroteUrl !== req.url
 
-            res.end()
-            return {
-              finished: true,
-            }
-          }
+          //   return {
+          //     finished: false,
+          //     pathname: rewriteParsed.pathname,
+          //     query: {
+          //       ...parsedURL.query,
+          //       ...rewriteParsed.query,
+          //     },
+          //   }
+          // }
 
-          const rewrite = result.response.headers.get('x-middleware-rewrite')
-          if (rewrite) {
-            const rewriteParsed = simpleParseUrl(rewrite)
-            if (rewriteParsed.protocol) {
-              return proxyRequest(req, res, rewriteParsed)
-            }
-
-            ;(req as any)._nextRewroteUrl = rewrite
-            ;(req as any)._nextDidRewrite =
-              (req as any)._nextRewroteUrl !== req.url
-
-            return {
-              finished: false,
-              pathname: rewriteParsed.pathname,
-              query: {
-                ...url.query,
-                ...rewriteParsed.query,
-              },
-            }
-          }
-
-          if (result.event === 'data') {
-            res.statusCode = result.response.statusCode
-            res.end(result.response.body)
-            return { finished: true }
-          }
+          // if (result.response.body) {
+          //   console.log('It has a body');
+          //   res.writeHead(result.response.status);
+          //   for await (const chunk of result.response.body) {
+          //     res.write(chunk);
+          //   }
+          //   res.end();
+          //   return {
+          //     finished: true,
+          //   }
+          // }
 
           return {
             finished: false,

@@ -1,9 +1,14 @@
-import type { EdgeFunctionResult } from './types'
-import type { RequestData, ResponseData } from './types'
-import { Crypto } from 'next/dist/compiled/@peculiar/webcrypto'
+import type { I18NConfig } from '../config-shared'
+import type { EdgeFunctionResult } from '../edge-functions-whatwg'
+
+import {
+  Blob,
+  File,
+  FormData,
+} from 'next/dist/compiled/@javivelasco/formdata-node'
 import { ReadableStream } from 'next/dist/compiled/web-streams-polyfill'
 import { TransformStream } from 'next/dist/compiled/web-streams-polyfill'
-import { v4 as uuid } from 'next/dist/compiled/uuid'
+import { Crypto } from '../edge-functions-whatwg/polyfills'
 import { readFileSync } from 'fs'
 import vm from 'vm'
 
@@ -55,12 +60,6 @@ class TextDecoderRuntime {
   }
 }
 
-class WebCrypto extends Crypto {
-  randomUUID() {
-    return uuid()
-  }
-}
-
 let cache:
   | {
       context: { [key: string]: any }
@@ -79,13 +78,24 @@ export function clearSandboxCache(path: string) {
 export async function run(params: {
   name: string
   paths: string[]
-  request: RequestData
-  response: ResponseData
+  request: {
+    config?: {
+      basePath?: string
+      i18n?: I18NConfig | null
+      trailingSlash?: boolean
+    }
+    geo?: { city?: string; country?: string; region?: string }
+    headers: Headers
+    ip?: string
+    method: string
+    url: string
+  }
 }): Promise<EdgeFunctionResult> {
   if (cache === undefined) {
     const context: { [key: string]: any } = {
       _NEXT_ENTRIES: {},
       atob,
+      Blob,
       btoa,
       clearInterval,
       clearTimeout,
@@ -99,8 +109,11 @@ export async function run(params: {
         timeLog: console.timeLog.bind(console),
         warn: console.warn.bind(console),
       },
-      crypto: new WebCrypto(),
+      Crypto,
+      crypto: new Crypto(),
       fetch,
+      File,
+      FormData,
       Headers,
       process: { env: { ...process.env } },
       ReadableStream,
@@ -133,5 +146,5 @@ export async function run(params: {
   }
 
   const fn = cache.context._NEXT_ENTRIES[`edge_${params.name}`].default
-  return fn({ request: params.request, response: params.response })
+  return fn({ request: params.request })
 }

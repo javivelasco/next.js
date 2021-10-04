@@ -1166,7 +1166,7 @@ export default async function getBaseWebpackConfig(
                   {
                     ...codeCondition,
                     issuerLayer: 'edge',
-                    use: defaultLoaders.babelEdge
+                    use: defaultLoaders.babelEdge,
                   },
                   {
                     ...codeCondition,
@@ -1461,11 +1461,6 @@ export default async function getBaseWebpackConfig(
 
     if (!isServer) {
       webpack5Config.output!.enabledLibraryTypes = ['assign']
-    }
-
-    if (isServer && dev) {
-      // Enable building of client compilation before server compilation in development
-      webpack5Config.dependencies = ['client']
     }
 
     if (dev) {

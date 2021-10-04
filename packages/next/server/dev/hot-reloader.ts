@@ -415,6 +415,9 @@ export default class HotReloader {
             if (isClientCompilation && page.match(API_ROUTE) && !isMiddleware) {
               return
             }
+            if (!isClientCompilation && isMiddleware) {
+              return
+            }
             const { bundlePath, absolutePagePath } = entries[pageKey]
             const pageExists = await isWriteable(absolutePagePath)
             if (!pageExists) {
