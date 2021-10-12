@@ -1,35 +1,32 @@
-import type { EdgeRequest } from './request'
-import type { EdgeResponse } from './response'
-import type { ParsedNextUrl } from '../../shared/lib/router/utils/parse-next-url'
+import type { I18NConfig } from '../config-shared'
 
-export interface EdgeFunction {
-  (params: {
-    request: RequestData
-    response: ResponseData
-    runtime?: { [key: string]: any }
-  }): Promise<EdgeFunctionResult>
+export interface NodeHeaders {
+  [header: string]: string | string[] | undefined
 }
 
-export interface RequestData {
-  geo?: { city?: string; country?: string; region?: string }
-  headers: Headers
+export interface EdgeFunctionRequest {
+  geo?: {
+    city?: string
+    country?: string
+    region?: string
+  }
+  headers: NodeHeaders
   ip?: string
   method: string
-  url: ParsedNextUrl
-}
-
-export interface ResponseData {
-  headers?: Headers
-}
-
-export interface RequestHandler {
-  (req: EdgeRequest, res: EdgeResponse, next?: () => void): Promise<void>
+  nextConfig?: {
+    basePath?: string
+    i18n?: I18NConfig | null
+    trailingSlash?: boolean
+  }
+  page?: {
+    name?: string
+    params?: { [key: string]: string }
+  }
+  url: string
 }
 
 export interface EdgeFunctionResult {
-  event: HeadersEvent
-  promise: Promise<void>
-  response: EdgeResponse
+  promise: Promise<any>
+  response: Response
+  waitUntil: Promise<any>
 }
-
-export type HeadersEvent = 'streaming' | 'data' | 'next'

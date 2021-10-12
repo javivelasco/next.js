@@ -1,55 +1,44 @@
-import { formatUrl as format } from '../../shared/lib/router/utils/format-url'
-import type { ParsedNextUrl } from '../../shared/lib/router/utils/parse-next-url'
+import type { NodeHeaders } from './types'
 
-export const Encoder = new TextEncoder()
-export const Decoder = new TextDecoder()
-
-export const encode = (input: string) => Encoder.encode(input)
-export const decode = (input: ArrayBufferView | ArrayBuffer, stream = false) =>
-  Decoder.decode(input, { stream })
-
-export function byteLength(input?: string): number {
-  return input ? Encoder.encode(input).byteLength : 0
-}
-
-export function formatUrl(url: string | ParsedNextUrl) {
-  return typeof url !== 'string' ? format(url) : url
-}
-
-export function formatPathname(
-  pathname: string,
-  options: {
-    basePath?: string
-    defaultLocale?: string
-    locale?: string
-  }
-) {
-  if (!pathname.startsWith('/')) {
-    return pathname
-  }
-
-  if (options.locale && options.defaultLocale !== options.locale) {
-    pathname = `/${options.locale}${pathname}`
-  }
-
-  if (options.basePath && !pathname.startsWith(options.basePath)) {
-    pathname = `${options.basePath}${pathname}`
-  }
-
-  return pathname
-}
-
-export function appendSearch(
-  search: string,
-  query: { [key: string]: string | string[] }
-) {
-  const urlParams = new URLSearchParams(search)
-  for (const [key, value] of Object.entries(query)) {
-    const [first, ...rest] = Array.isArray(value) ? value : [value]
-    urlParams.set(key, first)
-    for (const item of rest) {
-      urlParams.append(key, item)
+export async function* streamToIterator<T>(
+  readable: ReadableStream<T>
+): AsyncIterableIterator<T> {
+  const reader = readable.getReader()
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    if (value) {
+      yield value
     }
   }
-  return urlParams.toString()
+  reader.releaseLock()
+}
+
+export function notImplemented(name: string, method: string): any {
+  throw new Error(
+    `Failed to get the '${method}' property on '${name}': the property is not implemented`
+  )
+}
+
+export function fromNodeHeaders(object: NodeHeaders) {
+  const headers: { [k: string]: string } = {}
+  for (let headerKey in object) {
+    const headerValue = object[headerKey]
+    if (Array.isArray(headerValue)) {
+      headers[headerKey] = headerValue.join('; ')
+    } else if (headerValue) {
+      headers[headerKey] = String(headerValue)
+    }
+  }
+  return headers
+}
+
+export function toNodeHeaders(headers?: Headers): NodeHeaders {
+  const object: NodeHeaders = {}
+  if (headers) {
+    for (const [key, value] of headers.entries()) {
+      object[key] = value.includes(';') ? value.split(';') : value
+    }
+  }
+  return object
 }

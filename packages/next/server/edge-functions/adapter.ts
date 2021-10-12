@@ -1,75 +1,32 @@
-import { EdgeRequest } from './request'
-import { EdgeResponse } from './response'
-import type { EdgeFunctionResult, RequestHandler } from './types'
-import type { RequestData, ResponseData } from './types'
+import type { EdgeFunctionRequest, EdgeFunctionResult } from './types'
+
+import { fromNodeHeaders } from './utils'
+import { NextFetchEvent } from './spec-extension/fetch-event'
+import { NextRequest } from './spec-extension/request'
+import { NextResponse } from './spec-extension/response'
+import { waitUntilSymbol, responseSymbol } from './spec-compliant/fetch-event'
 
 export async function adapter(params: {
-  handler: RequestHandler
-  request: RequestData
-  response?: ResponseData
-}) {
-  return new Promise<EdgeFunctionResult>((topResolve, topReject) => {
-    const resolveResponse = edgeFunctionToMiddleware(topResolve)
-    let resolveHandler: {
-      resolve: () => void
-      reject: (err: Error) => void
-    }
-
-    const promise = new Promise<void>((resolve, reject) => {
-      resolveHandler = { resolve: resolve, reject: reject }
-    })
-
-    const req = new EdgeRequest(params.request)
-    const res = new EdgeResponse({
-      url: params.request.url,
+  handler: (event: NextFetchEvent) => void | Promise<void>
+  request: EdgeFunctionRequest
+}): Promise<EdgeFunctionResult> {
+  const event = new NextFetchEvent(
+    new NextRequest(params.request.url, {
+      geo: params.request.geo,
+      headers: fromNodeHeaders(params.request.headers),
+      ip: params.request.ip,
       method: params.request.method,
-      headers: params.response?.headers,
-      onHeadersSent: (event, response) => {
-        resolveResponse({
-          event,
-          response,
-          promise,
-        })
-      },
+      nextConfig: params.request.nextConfig,
+      page: params.request.page,
     })
+  )
 
-    function next() {
-      if (res.finished) {
-        return
-      }
+  const handled = params.handler(event)
+  const original = await event[responseSymbol]
 
-      resolveResponse({
-        event: 'next',
-        response: res,
-        promise,
-      })
-    }
-
-    Promise.resolve(params.handler(req, res, next))
-      .then(resolveHandler!.resolve)
-      .catch((error) => {
-        if (!res.finished) {
-          topReject(error)
-        } else {
-          resolveHandler!.reject(error)
-        }
-      })
-  })
-}
-
-function edgeFunctionToMiddleware(fn: (result: EdgeFunctionResult) => void) {
-  return ({ event, response, promise }: EdgeFunctionResult) => {
-    if (event !== 'next') {
-      response.headers.set('x-middleware-effect', '1')
-      if (response.location) {
-        response.headers.set('x-middleware-redirect', response.location)
-      } else if (response.rewriteLocation) {
-        response.headers.set('x-middleware-rewrite', response.rewriteLocation)
-      } else {
-        response.headers.set('x-middleware-refresh', '1')
-      }
-    }
-
-    fn({ event, response, promise })
+  return {
+    promise: Promise.resolve(handled),
+    response: original || NextResponse.next(),
+    waitUntil: Promise.all(event[waitUntilSymbol]),
   }
 }

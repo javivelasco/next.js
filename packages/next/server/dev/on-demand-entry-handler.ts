@@ -188,8 +188,8 @@ export default function onDemandEntryHandler(
       page = posix.normalize(pageUrl)
       const normalizedPage = normalizePathSep(page)
 
-      const isApiRoute = normalizedPage.match(API_ROUTE)
       const isMiddleware = normalizedPage.match(MIDDLEWARE_ROUTE)
+      const isApiRoute = normalizedPage.match(API_ROUTE) && !isMiddleware
 
       let entriesChanged = false
       const addPageEntry = (type: 'client' | 'server') => {

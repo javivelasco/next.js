@@ -30,6 +30,8 @@
     "error.d.ts",
     "script.js",
     "script.d.ts",
+    "server.js",
+    "server.d.ts",
     "head.js",
     "head.d.ts",
     "image.js",
