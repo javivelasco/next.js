@@ -618,49 +618,37 @@ export default async function build(
     await (async () => {
       // IIFE to isolate locals and avoid retaining memory too long
       const runWebpackSpan = nextBuildSpan.traceChild('run-webpack-compiler')
+
+      const commonWebpackOptions = {
+        buildId,
+        config,
+        hasReactRoot,
+        pagesDir,
+        reactProductionProfiling,
+        rewrites,
+        runWebpackSpan,
+        target,
+      }
+
       const configs = await runWebpackSpan
         .traceChild('generate-webpack-config')
         .traceAsyncFn(() =>
           Promise.all([
             getBaseWebpackConfig(dir, {
-              buildId,
-              reactProductionProfiling,
-              isServer: false,
-              config,
-              target,
-              pagesDir,
+              ...commonWebpackOptions,
+              isClient: true,
               entrypoints: entrypoints.client,
-              rewrites,
-              runWebpackSpan,
-              hasReactRoot,
             }),
             getBaseWebpackConfig(dir, {
-              buildId,
-              reactProductionProfiling,
-              isServer: true,
-              config,
-              target,
-              pagesDir,
+              ...commonWebpackOptions,
+              isNodeServer: true,
               entrypoints: entrypoints.server,
-              rewrites,
-              runWebpackSpan,
-              hasReactRoot,
             }),
-            hasReactRoot
-              ? getBaseWebpackConfig(dir, {
-                  buildId,
-                  reactProductionProfiling,
-                  isServer: true,
-                  isEdgeRuntime: true,
-                  config,
-                  target,
-                  pagesDir,
-                  entrypoints: entrypoints.edgeServer,
-                  rewrites,
-                  runWebpackSpan,
-                  hasReactRoot,
-                })
-              : null,
+            getBaseWebpackConfig(dir, {
+              ...commonWebpackOptions,
+              isEdgeServer: true,
+              entrypoints: entrypoints.edgeServer,
+            }),
           ])
         )
 
@@ -1468,7 +1456,11 @@ export default async function build(
 
     const middlewareManifest: MiddlewareManifest = JSON.parse(
       await promises.readFile(
-        path.join(distDir, SERVER_DIRECTORY, MIDDLEWARE_MANIFEST),
+        path.join(
+          distDir,
+          isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
+          MIDDLEWARE_MANIFEST
+        ),
         'utf8'
       )
     )

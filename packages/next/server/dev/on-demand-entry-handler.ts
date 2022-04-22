@@ -250,18 +250,21 @@ export default function onDemandEntryHandler(
         })
       }
 
-      const isClientOrMiddleware = clientOnly || isMiddleware
-
-      const promise = isApiRoute
-        ? addPageEntry('server')
-        : isClientOrMiddleware
-        ? addPageEntry('client')
-        : Promise.all([
-            addPageEntry('client'),
-            addPageEntry(
-              isEdgeServer && !isCustomError ? 'edge-server' : 'server'
-            ),
-          ])
+      let promise: Promise<void | void[]>
+      if (isApiRoute) {
+        promise = addPageEntry('server')
+      } else if (isMiddleware) {
+        promise = addPageEntry('edge-server')
+      } else if (clientOnly) {
+        promise = addPageEntry('client')
+      } else {
+        promise = Promise.all([
+          addPageEntry('client'),
+          addPageEntry(
+            isEdgeServer && !isCustomError ? 'edge-server' : 'server'
+          ),
+        ])
+      }
 
       if (entriesChanged) {
         reportTrigger(

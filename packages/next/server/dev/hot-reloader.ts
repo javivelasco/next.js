@@ -160,6 +160,7 @@ export default class HotReloader {
   private hasReactRoot: boolean
   public clientStats: webpack5.Stats | null
   public serverStats: webpack5.Stats | null
+  public edgeServerStats: webpack5.Stats | null
   private clientError: Error | null = null
   private serverError: Error | null = null
   private serverPrevDocumentHash: string | null
@@ -197,6 +198,7 @@ export default class HotReloader {
     this.distDir = distDir
     this.clientStats = null
     this.serverStats = null
+    this.edgeServerStats = null
     this.serverPrevDocumentHash = null
 
     this.config = config
@@ -417,50 +419,36 @@ export default class HotReloader {
           )
         )
 
+      const commonWebpackOptions = {
+        dev: true,
+        buildId: this.buildId,
+        config: this.config,
+        hasReactRoot: this.hasReactRoot,
+        pagesDir: this.pagesDir,
+        rewrites: this.rewrites,
+        runWebpackSpan: this.hotReloaderSpan,
+      }
+
       return webpackConfigSpan
         .traceChild('generate-webpack-config')
         .traceAsyncFn(() =>
-          Promise.all(
-            [
-              getBaseWebpackConfig(this.dir, {
-                dev: true,
-                isServer: false,
-                config: this.config,
-                buildId: this.buildId,
-                pagesDir: this.pagesDir,
-                rewrites: this.rewrites,
-                entrypoints: entrypoints.client,
-                runWebpackSpan: this.hotReloaderSpan,
-                hasReactRoot: this.hasReactRoot,
-              }),
-              getBaseWebpackConfig(this.dir, {
-                dev: true,
-                isServer: true,
-                config: this.config,
-                buildId: this.buildId,
-                pagesDir: this.pagesDir,
-                rewrites: this.rewrites,
-                entrypoints: entrypoints.server,
-                runWebpackSpan: this.hotReloaderSpan,
-                hasReactRoot: this.hasReactRoot,
-              }),
-              // The edge runtime is only supported with React root.
-              this.hasReactRoot
-                ? getBaseWebpackConfig(this.dir, {
-                    dev: true,
-                    isServer: true,
-                    isEdgeRuntime: true,
-                    config: this.config,
-                    buildId: this.buildId,
-                    pagesDir: this.pagesDir,
-                    rewrites: this.rewrites,
-                    entrypoints: entrypoints.edgeServer,
-                    runWebpackSpan: this.hotReloaderSpan,
-                    hasReactRoot: this.hasReactRoot,
-                  })
-                : null,
-            ].filter(Boolean) as webpack.Configuration[]
-          )
+          Promise.all([
+            getBaseWebpackConfig(this.dir, {
+              ...commonWebpackOptions,
+              isClient: true,
+              entrypoints: entrypoints.client,
+            }),
+            getBaseWebpackConfig(this.dir, {
+              ...commonWebpackOptions,
+              isNodeServer: true,
+              entrypoints: entrypoints.server,
+            }),
+            getBaseWebpackConfig(this.dir, {
+              ...commonWebpackOptions,
+              isEdgeServer: true,
+              entrypoints: entrypoints.edgeServer,
+            }),
+          ])
         )
     })
   }
@@ -471,7 +459,7 @@ export default class HotReloader {
     const fallbackConfig = await getBaseWebpackConfig(this.dir, {
       runWebpackSpan: this.hotReloaderSpan,
       dev: true,
-      isServer: false,
+      isClient: true,
       config: this.config,
       buildId: this.buildId,
       pagesDir: this.pagesDir,
@@ -559,11 +547,11 @@ export default class HotReloader {
             )
             const isMiddleware = !!page.match(MIDDLEWARE_ROUTE)
 
-            if (isClientCompilation && page.match(API_ROUTE) && !isMiddleware) {
+            if (isClientCompilation && page.match(API_ROUTE)) {
               return
             }
 
-            if (!isClientCompilation && isMiddleware) {
+            if (isClientCompilation && isMiddleware) {
               return
             }
 
@@ -577,7 +565,6 @@ export default class HotReloader {
 
             const isApiRoute = page.match(API_ROUTE)
             const isCustomError = isCustomErrorPage(page)
-            const isReserved = isReservedPage(page)
             const isServerComponent =
               this.hasServerComponents &&
               isFlightPage(this.config, absolutePagePath)
@@ -586,12 +573,14 @@ export default class HotReloader {
               absolutePagePath,
               this.config
             )
-            const isEdgeSSRPage = pageRuntimeConfig === 'edge' && !isApiRoute
+            const isEdgeSSRPage =
+              pageRuntimeConfig === 'edge' && !isApiRoute && !isMiddleware
 
             if (isNodeServerCompilation && isEdgeSSRPage && !isCustomError) {
               return
             }
-            if (isEdgeServerCompilation && !isEdgeSSRPage) {
+
+            if (isEdgeServerCompilation && !isEdgeSSRPage && !isMiddleware) {
               return
             }
 
@@ -602,36 +591,31 @@ export default class HotReloader {
             }
 
             if (isClientCompilation) {
-              if (isMiddleware) {
-                // Middleware
-                entrypoints[bundlePath] = finalizeEntrypoint({
-                  name: bundlePath,
-                  value: `next-middleware-loader?${stringify(pageLoaderOpts)}!`,
-                  isServer: false,
-                  isMiddleware: true,
-                })
-              } else {
-                // A page route
-                entrypoints[bundlePath] = finalizeEntrypoint({
-                  name: bundlePath,
-                  value: `next-client-pages-loader?${stringify(
-                    pageLoaderOpts
-                  )}!`,
-                  isServer: false,
-                })
+              // A page route
+              entrypoints[bundlePath] = finalizeEntrypoint({
+                name: bundlePath,
+                value: `next-client-pages-loader?${stringify(pageLoaderOpts)}!`,
+                isNodeServer: false,
+              })
 
-                // Tell the middleware plugin of the client compilation
-                // that this route is a page.
-                if (isEdgeSSRPage) {
-                  if (isServerComponent) {
-                    ssrEntries.set(bundlePath, { requireFlightManifest: true })
-                  } else if (!isCustomError && !isReserved) {
-                    ssrEntries.set(bundlePath, { requireFlightManifest: false })
-                  }
+              // Tell the middleware plugin of the client compilation
+              // that this route is a page.
+              if (isEdgeSSRPage) {
+                if (isServerComponent) {
+                  ssrEntries.set(bundlePath, { requireFlightManifest: true })
+                } else if (!isCustomError && !isReservedPage(page)) {
+                  ssrEntries.set(bundlePath, { requireFlightManifest: false })
                 }
               }
             } else if (isEdgeServerCompilation) {
-              if (!isReserved) {
+              if (isMiddleware) {
+                entrypoints[bundlePath] = finalizeEntrypoint({
+                  name: bundlePath,
+                  value: `next-middleware-loader?${stringify(pageLoaderOpts)}!`,
+                  isEdgeServer: true,
+                  isMiddleware: true,
+                })
+              } else if (!isReservedPage(page)) {
                 entrypoints[bundlePath] = finalizeEntrypoint({
                   name: '[name].js',
                   value: `next-middleware-ssr-loader?${stringify({
@@ -646,8 +630,7 @@ export default class HotReloader {
                     absolutePagePath,
                     isServerComponent,
                     buildId: this.buildId,
-                  } as any)}!`,
-                  isServer: false,
+                  })}!`,
                   isEdgeServer: true,
                 })
               }
@@ -660,7 +643,7 @@ export default class HotReloader {
               entrypoints[bundlePath] = finalizeEntrypoint({
                 name: bundlePath,
                 value: request,
-                isServer: true,
+                isNodeServer: true,
               })
             }
           })
@@ -679,15 +662,17 @@ export default class HotReloader {
     watchCompilers(
       multiCompiler.compilers[0],
       multiCompiler.compilers[1],
-      multiCompiler.compilers[2] || null
+      multiCompiler.compilers[2]
     )
 
     // Watch for changes to client/server page files so we can tell when just
     // the server file changes and trigger a reload for GS(S)P pages
     const changedClientPages = new Set<string>()
     const changedServerPages = new Set<string>()
+    const changedEdgeServerPages = new Set<string>()
     const prevClientPageHashes = new Map<string, string>()
     const prevServerPageHashes = new Map<string, string>()
+    const prevEdgeServerPageHashes = new Map<string, string>()
 
     const trackPageChanges =
       (pageHashMap: Map<string, string>, changedItems: Set<string>) =>
@@ -752,6 +737,10 @@ export default class HotReloader {
       'NextjsHotReloaderForServer',
       trackPageChanges(prevServerPageHashes, changedServerPages)
     )
+    multiCompiler.compilers[2].hooks.emit.tap(
+      'NextjsHotReloaderForServer',
+      trackPageChanges(prevEdgeServerPageHashes, changedEdgeServerPages)
+    )
 
     // This plugin watches for changes to _document.js and notifies the client side that it should reload the page
     multiCompiler.compilers[1].hooks.failed.tap(
@@ -761,6 +750,15 @@ export default class HotReloader {
         this.serverStats = null
       }
     )
+
+    multiCompiler.compilers[2].hooks.done.tap(
+      'NextjsHotReloaderForServer',
+      (stats) => {
+        this.serverError = null
+        this.edgeServerStats = stats
+      }
+    )
+
     multiCompiler.compilers[1].hooks.done.tap(
       'NextjsHotReloaderForServer',
       (stats) => {
@@ -799,11 +797,12 @@ export default class HotReloader {
         changedServerPages,
         changedClientPages
       )
-      const middlewareChanges = Array.from(changedClientPages).filter((name) =>
-        name.match(MIDDLEWARE_ROUTE)
+      const middlewareChanges = Array.from(changedEdgeServerPages).filter(
+        (name) => name.match(MIDDLEWARE_ROUTE)
       )
       changedClientPages.clear()
       changedServerPages.clear()
+      changedEdgeServerPages.clear()
 
       if (middlewareChanges.length > 0) {
         this.send({

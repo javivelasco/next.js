@@ -27,10 +27,7 @@ import {
   withoutRSCExtensions,
 } from './utils'
 import { ssrEntries } from './webpack/plugins/middleware-plugin'
-import {
-  MIDDLEWARE_RUNTIME_WEBPACK,
-  MIDDLEWARE_SSR_RUNTIME_WEBPACK,
-} from '../shared/lib/constants'
+import { EDGE_RUNTIME_WEBPACK } from '../shared/lib/constants'
 
 type ObjectValue<T> = T extends { [key: string]: infer V } ? V : never
 
@@ -115,12 +112,6 @@ export function createPagesMapping({
     ...(hasServerComponents ? { '/_app.server': `${root}/_app.server` } : {}),
     ...pages,
   }
-}
-
-type Entrypoints = {
-  client: webpack5.EntryObject
-  server: webpack5.EntryObject
-  edgeServer: webpack5.EntryObject
 }
 
 const cachedPageRuntimeConfig = new Map<string, [number, PageRuntime]>()
@@ -239,7 +230,7 @@ export async function createEntrypoints(
   loadedEnvFiles: LoadedEnvFiles,
   pagesDir: string,
   isDev?: boolean
-): Promise<Entrypoints> {
+) {
   const client: webpack5.EntryObject = {}
   const server: webpack5.EntryObject = {}
   const edgeServer: webpack5.EntryObject = {}
@@ -303,9 +294,12 @@ export async function createEntrypoints(
           page,
         }
 
-        client[clientBundlePath] = `next-middleware-loader?${stringify(
-          loaderOpts
-        )}!`
+        edgeServer[serverBundlePath] = finalizeEntrypoint({
+          name: '[name].js',
+          value: `next-middleware-loader?${stringify(loaderOpts)}!`,
+          isEdgeServer: true,
+          isMiddleware: true,
+        })
         return
       }
 
@@ -322,7 +316,6 @@ export async function createEntrypoints(
             isServerComponent: isFlight,
             ...defaultServerlessOptions,
           } as any)}!`,
-          isServer: false,
           isEdgeServer: true,
         })
       }
@@ -392,22 +385,26 @@ export async function createEntrypoints(
 export function finalizeEntrypoint({
   name,
   value,
-  isServer,
+  isNodeServer,
   isMiddleware,
   isEdgeServer,
 }: {
-  isServer: boolean
   name: string
   value: ObjectValue<webpack5.EntryObject>
+  isNodeServer?: boolean
   isMiddleware?: boolean
   isEdgeServer?: boolean
 }): ObjectValue<webpack5.EntryObject> {
+  if (isEdgeServer && isNodeServer) {
+    throw new Error(`You can't provide both "isNodeServer" and "isEdgeServer"`)
+  }
+
   const entry =
     typeof value !== 'object' || Array.isArray(value)
       ? { import: value }
       : value
 
-  if (isServer) {
+  if (isNodeServer) {
     const isApi = name.startsWith('pages/api/')
     return {
       publicPath: isApi ? '' : undefined,
@@ -418,30 +415,30 @@ export function finalizeEntrypoint({
   }
 
   if (isEdgeServer) {
+    if (isMiddleware) {
+      const middlewareEntry = {
+        layer: 'middleware',
+        library: {
+          name: ['_ENTRIES', `middleware_[name]`],
+          type: 'assign',
+        },
+        runtime: EDGE_RUNTIME_WEBPACK,
+        asyncChunks: false,
+        ...entry,
+      }
+      return middlewareEntry
+    }
+
     const ssrMiddlewareEntry = {
       library: {
         name: ['_ENTRIES', `middleware_[name]`],
         type: 'assign',
       },
-      runtime: MIDDLEWARE_SSR_RUNTIME_WEBPACK,
+      runtime: EDGE_RUNTIME_WEBPACK,
       asyncChunks: false,
       ...entry,
     }
     return ssrMiddlewareEntry
-  }
-  if (isMiddleware) {
-    const middlewareEntry = {
-      filename: 'server/[name].js',
-      layer: 'middleware',
-      library: {
-        name: ['_ENTRIES', `middleware_[name]`],
-        type: 'assign',
-      },
-      runtime: MIDDLEWARE_RUNTIME_WEBPACK,
-      asyncChunks: false,
-      ...entry,
-    }
-    return middlewareEntry
   }
 
   if (

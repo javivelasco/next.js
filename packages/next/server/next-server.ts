@@ -941,7 +941,10 @@ export default class NextNodeServer extends BaseServer {
   protected getMiddlewareManifest(): MiddlewareManifest | undefined {
     if (!this.minimalMode) {
       const middlewareManifestPath = join(
-        join(this.distDir, SERVER_DIRECTORY),
+        join(
+          this.distDir,
+          this._isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
+        ),
         MIDDLEWARE_MANIFEST
       )
       return require(middlewareManifestPath)

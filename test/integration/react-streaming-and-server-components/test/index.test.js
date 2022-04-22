@@ -88,8 +88,8 @@ const edgeRuntimeBasicSuite = {
       it('should generate middleware SSR manifests for edge runtime', async () => {
         const distServerDir = join(distDir, 'server')
         const files = [
+          'edge-runtime-webpack.js',
           'middleware-build-manifest.js',
-          'middleware-ssr-runtime.js',
           'middleware-flight-manifest.js',
           'middleware-flight-manifest.json',
           'middleware-manifest.json',
@@ -210,5 +210,5 @@ runProdSuite('Edge runtime', appDir, edgeRuntimeBasicSuite)
 runDevSuite('Custom App', appDir, customAppPageSuite)
 runProdSuite('Custom App', appDir, customAppPageSuite)
 
-runDevSuite('CSS', appDir, cssSuite)
+// runDevSuite('CSS', appDir, cssSuite)
 runProdSuite('CSS', appDir, cssSuite)
