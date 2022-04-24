@@ -498,14 +498,15 @@ export default async function getBaseWebpackConfig(
   // Intentionally not using isTargetLikeServerless helper
   const isLikeServerless =
     target === 'serverless' || target === 'experimental-serverless-trace'
-  const outputPath = path.join(
-    distDir,
+
+  const outputPath =
     isNodeServer || isEdgeServer
-      ? isLikeServerless
-        ? SERVERLESS_DIRECTORY
-        : SERVER_DIRECTORY
-      : ''
-  )
+      ? path.join(
+          distDir,
+          isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
+        )
+      : distDir
+
   const clientEntries = isClient
     ? ({
         // Backwards compatibility

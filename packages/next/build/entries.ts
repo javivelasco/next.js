@@ -415,33 +415,17 @@ export function finalizeEntrypoint({
   }
 
   if (isEdgeServer) {
-    if (isMiddleware) {
-      const middlewareEntry = {
-        layer: 'middleware',
-        library: {
-          name: ['_ENTRIES', `middleware_[name]`],
-          type: 'assign',
-        },
-        runtime: EDGE_RUNTIME_WEBPACK,
-        asyncChunks: false,
-        ...entry,
-      }
-      return middlewareEntry
-    }
-
-    const ssrMiddlewareEntry = {
-      library: {
-        name: ['_ENTRIES', `middleware_[name]`],
-        type: 'assign',
-      },
+    return {
+      layer: isMiddleware ? 'middleware' : undefined,
+      library: { name: ['_ENTRIES', `middleware_[name]`], type: 'assign' },
       runtime: EDGE_RUNTIME_WEBPACK,
       asyncChunks: false,
       ...entry,
     }
-    return ssrMiddlewareEntry
   }
 
   if (
+    // Client special cases
     name !== 'polyfills' &&
     name !== 'main' &&
     name !== 'amp' &&
