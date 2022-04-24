@@ -495,17 +495,17 @@ export default async function getBaseWebpackConfig(
     .split(process.platform === 'win32' ? ';' : ':')
     .filter((p) => !!p)
 
-  const isServerless = target === 'serverless'
-  const isServerlessTrace = target === 'experimental-serverless-trace'
   // Intentionally not using isTargetLikeServerless helper
-  const isLikeServerless = isServerless || isServerlessTrace
-
-  const outputDir = isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
+  const isLikeServerless =
+    target === 'serverless' || target === 'experimental-serverless-trace'
   const outputPath = path.join(
     distDir,
-    isNodeServer || isEdgeServer ? outputDir : ''
+    isNodeServer || isEdgeServer
+      ? isLikeServerless
+        ? SERVERLESS_DIRECTORY
+        : SERVER_DIRECTORY
+      : ''
   )
-  const totalPages = Object.keys(entrypoints).length
   const clientEntries = isClient
     ? ({
         // Backwards compatibility
@@ -889,91 +889,6 @@ export default async function getBaseWebpackConfig(
     include: [dir, /next[\\/]dist[\\/]pages/],
   }
 
-  function getSplitChunksConfig(): webpack.Options.SplitChunksOptions | false {
-    if (dev) {
-      return false
-    }
-
-    if (isNodeServer) {
-      return {
-        // @ts-ignore
-        filename: '[name].js',
-        chunks: 'all',
-        minSize: 1000,
-      }
-    }
-
-    if (isEdgeServer) {
-      return {
-        // @ts-ignore
-        filename: 'edge-chunks/[name].js',
-        chunks: 'all',
-        minChunks: 2,
-      }
-    }
-
-    return {
-      // Keep main and _app chunks unsplitted in webpack 5
-      // as we don't need a separate vendor chunk from that
-      // and all other chunk depend on them so there is no
-      // duplication that need to be pulled out.
-      chunks: (chunk) => !/^(polyfills|main|pages\/_app)$/.test(chunk.name),
-      cacheGroups: {
-        framework: {
-          chunks: 'all',
-          name: 'framework',
-          test(module) {
-            const resource = module.nameForCondition?.()
-            return resource
-              ? topLevelFrameworkPaths.some((pkgPath) =>
-                  resource.startsWith(pkgPath)
-                )
-              : false
-          },
-          priority: 40,
-          // Don't let webpack eliminate this chunk (prevents this chunk from
-          // becoming a part of the commons chunk)
-          enforce: true,
-        },
-        lib: {
-          test(module: {
-            size: Function
-            nameForCondition: Function
-          }): boolean {
-            return (
-              module.size() > 160000 &&
-              /node_modules[/\\]/.test(module.nameForCondition() || '')
-            )
-          },
-          name(module: {
-            type: string
-            libIdent?: Function
-            updateHash: (hash: crypto.Hash) => void
-          }): string {
-            const hash = crypto.createHash('sha1')
-            if (isModuleCSS(module)) {
-              module.updateHash(hash)
-            } else {
-              if (!module.libIdent) {
-                throw new Error(
-                  `Encountered unknown module type: ${module.type}. Please open an issue.`
-                )
-              }
-              hash.update(module.libIdent({ context: dir }))
-            }
-
-            return hash.digest('hex').substring(0, 8)
-          },
-          priority: 30,
-          minChunks: 1,
-          reuseExistingChunk: true,
-        },
-      },
-      maxInitialRequests: 25,
-      minSize: 20000,
-    }
-  }
-
   let webpackConfig: webpack.Configuration = {
     parallelism: Number(process.env.NEXT_WEBPACK_PARALLELISM) || undefined,
     externals:
@@ -1056,7 +971,90 @@ export default async function getBaseWebpackConfig(
             moduleIds: 'named',
           }
         : {}),
-      splitChunks: getSplitChunksConfig(),
+      splitChunks: ((): webpack.Options.SplitChunksOptions | false => {
+        if (dev) {
+          return false
+        }
+
+        if (isNodeServer) {
+          return {
+            // @ts-ignore
+            filename: '[name].js',
+            chunks: 'all',
+            minSize: 1000,
+          }
+        }
+
+        if (isEdgeServer) {
+          return {
+            // @ts-ignore
+            filename: 'edge-chunks/[name].js',
+            chunks: 'all',
+            minChunks: 2,
+          }
+        }
+
+        return {
+          // Keep main and _app chunks unsplitted in webpack 5
+          // as we don't need a separate vendor chunk from that
+          // and all other chunk depend on them so there is no
+          // duplication that need to be pulled out.
+          chunks: (chunk) => !/^(polyfills|main|pages\/_app)$/.test(chunk.name),
+          cacheGroups: {
+            framework: {
+              chunks: 'all',
+              name: 'framework',
+              test(module) {
+                const resource = module.nameForCondition?.()
+                return resource
+                  ? topLevelFrameworkPaths.some((pkgPath) =>
+                      resource.startsWith(pkgPath)
+                    )
+                  : false
+              },
+              priority: 40,
+              // Don't let webpack eliminate this chunk (prevents this chunk from
+              // becoming a part of the commons chunk)
+              enforce: true,
+            },
+            lib: {
+              test(module: {
+                size: Function
+                nameForCondition: Function
+              }): boolean {
+                return (
+                  module.size() > 160000 &&
+                  /node_modules[/\\]/.test(module.nameForCondition() || '')
+                )
+              },
+              name(module: {
+                type: string
+                libIdent?: Function
+                updateHash: (hash: crypto.Hash) => void
+              }): string {
+                const hash = crypto.createHash('sha1')
+                if (isModuleCSS(module)) {
+                  module.updateHash(hash)
+                } else {
+                  if (!module.libIdent) {
+                    throw new Error(
+                      `Encountered unknown module type: ${module.type}. Please open an issue.`
+                    )
+                  }
+                  hash.update(module.libIdent({ context: dir }))
+                }
+
+                return hash.digest('hex').substring(0, 8)
+              },
+              priority: 30,
+              minChunks: 1,
+              reuseExistingChunk: true,
+            },
+          },
+          maxInitialRequests: 25,
+          minSize: 20000,
+        }
+      })(),
       runtimeChunk: isClient
         ? { name: CLIENT_STATIC_FILES_RUNTIME_WEBPACK }
         : undefined,
@@ -1829,7 +1827,7 @@ export default async function getBaseWebpackConfig(
       buildId,
       config,
       defaultLoaders,
-      totalPages,
+      totalPages: Object.keys(entrypoints).length,
       webpack,
     })
 
