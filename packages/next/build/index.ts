@@ -564,11 +564,8 @@ export default async function build(
         )
       )
 
-    const manifestPath = path.join(
-      distDir,
-      isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
-      PAGES_MANIFEST
-    )
+    const serverDir = isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
+    const manifestPath = path.join(distDir, serverDir, PAGES_MANIFEST)
 
     const requiredServerFiles = nextBuildSpan
       .traceChild('generate-required-server-files')
@@ -599,12 +596,7 @@ export default async function build(
               ]
             : []),
           REACT_LOADABLE_MANIFEST,
-          config.optimizeFonts
-            ? path.join(
-                isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
-                FONT_MANIFEST
-              )
-            : null,
+          config.optimizeFonts ? path.join(serverDir, FONT_MANIFEST) : null,
           BUILD_ID_FILE,
         ]
           .filter(nonNullable)
@@ -1456,11 +1448,7 @@ export default async function build(
 
     const middlewareManifest: MiddlewareManifest = JSON.parse(
       await promises.readFile(
-        path.join(
-          distDir,
-          isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
-          MIDDLEWARE_MANIFEST
-        ),
+        path.join(distDir, serverDir, MIDDLEWARE_MANIFEST),
         'utf8'
       )
     )
@@ -1647,10 +1635,6 @@ export default async function build(
           const serverBundle = getPagePath(page, distDir, isLikeServerless)
           await promises.unlink(serverBundle)
         }
-        const serverOutputDir = path.join(
-          distDir,
-          isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY
-        )
 
         const moveExportedPage = async (
           originPage: string,
@@ -1673,7 +1657,7 @@ export default async function build(
 
               const relativeDest = path
                 .relative(
-                  serverOutputDir,
+                  path.join(distDir, serverDir),
                   path.join(
                     path.join(
                       pagePath,
@@ -1690,12 +1674,6 @@ export default async function build(
                 )
                 .replace(/\\/g, '/')
 
-              const dest = path.join(
-                distDir,
-                isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
-                relativeDest
-              )
-
               if (
                 !isSsg &&
                 !(
@@ -1710,6 +1688,7 @@ export default async function build(
                 pagesManifest[page] = relativeDest
               }
 
+              const dest = path.join(distDir, serverDir, relativeDest)
               const isNotFound = ssgNotFoundPaths.includes(page)
 
               // for SSG files with i18n the non-prerendered variants are
@@ -1755,7 +1734,7 @@ export default async function build(
                   )
                   const updatedDest = path.join(
                     distDir,
-                    isLikeServerless ? SERVERLESS_DIRECTORY : SERVER_DIRECTORY,
+                    serverDir,
                     updatedRelativeDest
                   )
 
