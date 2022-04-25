@@ -20,12 +20,7 @@ import { normalizePathSep } from '../server/denormalize-page-path'
 import { ssrEntries } from './webpack/plugins/middleware-plugin'
 import { warn } from './output/log'
 import { parse } from '../build/swc'
-import {
-  isCustomErrorPage,
-  isFlightPage,
-  isReservedPage,
-  withoutRSCExtensions,
-} from './utils'
+import { isFlightPage, withoutRSCExtensions } from './utils'
 
 type ObjectValue<T> = T extends { [key: string]: infer V } ? V : never
 
@@ -249,7 +244,6 @@ export async function createEntrypoints(
       )
 
       const isApiRoute = page.match(API_ROUTE)
-      const isCustomError = isCustomErrorPage(page)
       const isEdgeRuntime = pageRuntime === 'edge'
       const isFlight = isFlightPage(config, absolutePagePath)
       const isLikeServerless = isTargetLikeServerless(target)
@@ -264,26 +258,6 @@ export async function createEntrypoints(
           )}!`,
         })
         return
-      }
-
-      /**
-       * Edge Runtime pages are added to the EdgeServer compiler but we should
-       * skip special cases like API routes, custom error pages, and reserved
-       * pages.
-       */
-      if (isEdgeRuntime && !isReservedPage(page) && !isCustomError) {
-        if (isApiRoute) {
-          throw new Error('API routes are not supported by the Edge runtime')
-        }
-
-        ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
-        edgeServer[serverBundlePath] = finalizeEntrypoint({
-          isEdgeServer: true,
-          name: '[name].js',
-          value: `next-middleware-ssr-loader?${stringify(
-            getMiddlewareSSRLoaderOpts({ buildId, config, page, pages })
-          )}!`,
-        })
       }
 
       if (isApiRoute) {
@@ -306,8 +280,31 @@ export async function createEntrypoints(
       }
 
       if (
+        isEdgeRuntime &&
+        page !== '/_app' &&
+        page !== '/_document' &&
+        page !== '/_error' &&
+        page !== '/404' &&
+        page !== '/500'
+      ) {
+        ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
+        edgeServer[serverBundlePath] = finalizeEntrypoint({
+          isEdgeServer: true,
+          name: '[name].js',
+          value: `next-middleware-ssr-loader?${stringify(
+            getMiddlewareSSRLoaderOpts({ buildId, config, page, pages })
+          )}!`,
+        })
+      }
+
+      if (
         !isLikeServerless &&
-        (!isEdgeRuntime || isReservedPage(page) || isCustomError)
+        (!isEdgeRuntime ||
+          page === '/_app' ||
+          page === '/_document' ||
+          page === '/_error' ||
+          page === '/404' ||
+          page === '/500')
       ) {
         server[serverBundlePath] = [absolutePagePath]
       }
