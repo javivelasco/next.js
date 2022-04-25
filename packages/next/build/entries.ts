@@ -303,13 +303,14 @@ export async function createEntrypoints(
           return
         }
 
+        // Edge is not support atm
         server[serverBundlePath] = [absolutePagePath]
         return
       }
 
       // Every page is added to the client bundle except two that are only
       // server pages
-      if (page !== '/_document' && page !== '/_app.server') {
+      if (page !== '/_document') {
         client[clientBundlePath] = getClientEntry()
       }
 
