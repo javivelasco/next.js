@@ -235,88 +235,8 @@ export async function createEntrypoints(
       const clientBundlePath = posix.join('pages', bundleFile)
       const serverBundlePath = posix.join('pages', bundleFile)
 
-      const pageRuntime = await getPageRuntime(
-        !absolutePagePath.startsWith(PAGES_DIR_ALIAS)
-          ? require.resolve(absolutePagePath)
-          : join(pagesDir, absolutePagePath.replace(PAGES_DIR_ALIAS, '')),
-        config,
-        isDev
-      )
-
-      const isApiRoute = page.match(API_ROUTE)
-      const isEdgeRuntime = pageRuntime === 'edge'
-      const isFlight = isFlightPage(config, absolutePagePath)
-      const isLikeServerless = isTargetLikeServerless(target)
-
-      if (page.match(MIDDLEWARE_ROUTE)) {
-        edgeServer[serverBundlePath] = finalizeEntrypoint({
-          isEdgeServer: true,
-          isMiddleware: true,
-          name: '[name].js',
-          value: `next-middleware-loader?${stringify(
-            getNextMiddlewareLoaderOpts({ page, pages })
-          )}!`,
-        })
-        return
-      }
-
-      if (isApiRoute) {
-        if (isLikeServerless) {
-          server[serverBundlePath] = `next-serverless-loader?${stringify(
-            getServerlessLoaderOpts({
-              buildId,
-              config,
-              loadedEnvFiles,
-              page,
-              pages,
-              previewMode,
-            })
-          )}!`
-          return
-        }
-
-        server[serverBundlePath] = [absolutePagePath]
-        return
-      }
-
-      if (
-        isEdgeRuntime &&
-        page !== '/_app' &&
-        page !== '/_document' &&
-        page !== '/_error' &&
-        page !== '/404' &&
-        page !== '/500'
-      ) {
-        ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
-        edgeServer[serverBundlePath] = finalizeEntrypoint({
-          isEdgeServer: true,
-          name: '[name].js',
-          value: `next-middleware-ssr-loader?${stringify(
-            getMiddlewareSSRLoaderOpts({ buildId, config, page, pages })
-          )}!`,
-        })
-      }
-
-      if (
-        !isLikeServerless &&
-        (!isEdgeRuntime ||
-          page === '/_app' ||
-          page === '/_document' ||
-          page === '/_error' ||
-          page === '/404' ||
-          page === '/500')
-      ) {
-        server[serverBundlePath] = [absolutePagePath]
-      }
-
-      if (
-        isLikeServerless &&
-        !isEdgeRuntime &&
-        page !== '/_app' &&
-        page !== '/_app.server' &&
-        page !== '/_document'
-      ) {
-        server[serverBundlePath] = `next-serverless-loader?${stringify(
+      const getServerlessEntry = () => {
+        return `next-serverless-loader?${stringify(
           getServerlessLoaderOpts({
             buildId,
             config,
@@ -328,7 +248,7 @@ export async function createEntrypoints(
         )}!`
       }
 
-      if (page !== '/_document' && page !== '/_app.server') {
+      const getClientEntry = () => {
         const pageLoader = `next-client-pages-loader?${stringify(
           getClientPagesLoader({ page, pages })
         )}!`
@@ -336,10 +256,93 @@ export async function createEntrypoints(
         // Make sure next/router is a dependency of _app or else chunk splitting
         // might cause the router to not be able to load causing hydration
         // to fail
-        client[clientBundlePath] =
-          page === '/_app'
-            ? [pageLoader, require.resolve('../client/router')]
-            : pageLoader
+        return page === '/_app'
+          ? [pageLoader, require.resolve('../client/router')]
+          : pageLoader
+      }
+
+      const getEdgeServerEntry = () => {
+        if (page.match(MIDDLEWARE_ROUTE)) {
+          return finalizeEntrypoint({
+            isEdgeServer: true,
+            isMiddleware: true,
+            name: '[name].js',
+            value: `next-middleware-loader?${stringify(
+              getNextMiddlewareLoaderOpts({ page, pages })
+            )}!`,
+          })
+        }
+
+        return finalizeEntrypoint({
+          isEdgeServer: true,
+          name: '[name].js',
+          value: `next-middleware-ssr-loader?${stringify(
+            getMiddlewareSSRLoaderOpts({ buildId, config, page, pages })
+          )}!`,
+        })
+      }
+
+      const pageRuntime = await getPageRuntime(
+        !absolutePagePath.startsWith(PAGES_DIR_ALIAS)
+          ? require.resolve(absolutePagePath)
+          : join(pagesDir, absolutePagePath.replace(PAGES_DIR_ALIAS, '')),
+        config,
+        isDev
+      )
+
+      const isFlight = isFlightPage(config, absolutePagePath)
+
+      if (page.match(MIDDLEWARE_ROUTE)) {
+        edgeServer[serverBundlePath] = getEdgeServerEntry()
+        return
+      }
+
+      if (page.match(API_ROUTE)) {
+        if (isTargetLikeServerless(target)) {
+          server[serverBundlePath] = getServerlessEntry()
+          return
+        }
+
+        server[serverBundlePath] = [absolutePagePath]
+        return
+      }
+
+      if (
+        pageRuntime === 'edge' &&
+        page !== '/_app' &&
+        page !== '/_document' &&
+        page !== '/_error' &&
+        page !== '/404' &&
+        page !== '/500'
+      ) {
+        ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
+        edgeServer[serverBundlePath] = getEdgeServerEntry()
+      }
+
+      if (
+        !isTargetLikeServerless(target) &&
+        (pageRuntime !== 'edge' ||
+          page === '/_app' ||
+          page === '/_document' ||
+          page === '/_error' ||
+          page === '/404' ||
+          page === '/500')
+      ) {
+        server[serverBundlePath] = [absolutePagePath]
+      }
+
+      if (
+        isTargetLikeServerless(target) &&
+        pageRuntime !== 'edge' &&
+        page !== '/_app' &&
+        page !== '/_app.server' &&
+        page !== '/_document'
+      ) {
+        server[serverBundlePath] = getServerlessEntry()
+      }
+
+      if (page !== '/_document' && page !== '/_app.server') {
+        client[clientBundlePath] = getClientEntry()
       }
     })
   )
