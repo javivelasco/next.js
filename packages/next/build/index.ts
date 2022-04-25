@@ -756,16 +756,16 @@ export default async function build(
         ...(result.stats[2]?.compilation.errors ?? []),
       ]
 
-      for (const error of edgeRuntimeErrors) {
+      for (const err of edgeRuntimeErrors) {
         // When using the web runtime, common Node.js native APIs are not available.
-        const moduleName = getUnresolvedModuleFromError(error.message)
+        const moduleName = getUnresolvedModuleFromError(err.message)
         if (!moduleName) continue
 
-        const err = new Error(
+        const e = new Error(
           getNodeBuiltinModuleNotSupportedInEdgeRuntimeMessage(moduleName)
         ) as NextError
-        err.code = 'EDGE_RUNTIME_UNSUPPORTED_API'
-        throw err
+        e.code = 'EDGE_RUNTIME_UNSUPPORTED_API'
+        throw e
       }
 
       if (
