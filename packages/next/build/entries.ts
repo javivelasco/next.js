@@ -235,6 +235,22 @@ export async function createEntrypoints(
       const clientBundlePath = posix.join('pages', bundleFile)
       const serverBundlePath = posix.join('pages', bundleFile)
 
+      const pageRuntime = await getPageRuntime(
+        !absolutePagePath.startsWith(PAGES_DIR_ALIAS)
+          ? require.resolve(absolutePagePath)
+          : join(pagesDir, absolutePagePath.replace(PAGES_DIR_ALIAS, '')),
+        config,
+        isDev
+      )
+
+      if (isTargetLikeServerless(target) && pageRuntime === 'edge') {
+        throw new Error(`Edge Runtime is not compatible with Serverless`)
+      }
+
+      if (isTargetLikeServerless(target) && page === '/_app.server') {
+        throw new Error(`Edge Runtime is not compatible with Serverless`)
+      }
+
       const getServerlessEntry = () => {
         return `next-serverless-loader?${stringify(
           getServerlessLoaderOpts({
@@ -282,14 +298,6 @@ export async function createEntrypoints(
         })
       }
 
-      const pageRuntime = await getPageRuntime(
-        !absolutePagePath.startsWith(PAGES_DIR_ALIAS)
-          ? require.resolve(absolutePagePath)
-          : join(pagesDir, absolutePagePath.replace(PAGES_DIR_ALIAS, '')),
-        config,
-        isDev
-      )
-
       const isFlight = isFlightPage(config, absolutePagePath)
 
       if (page.match(MIDDLEWARE_ROUTE)) {
@@ -308,45 +316,36 @@ export async function createEntrypoints(
         return
       }
 
-      // Every page is added to the client bundle except two that are only
-      // server pages
-      if (page !== '/_document') {
-        client[clientBundlePath] = getClientEntry()
-      }
-
-      if (page === '/_app' || page === '/_document') {
+      // SPECIAL PAGES
+      if (
+        page === '/_app' ||
+        page === '/_document' ||
+        page === '/_error' ||
+        page === '/404' ||
+        page === '/500'
+      ) {
         if (!isTargetLikeServerless(target)) {
           server[serverBundlePath] = [absolutePagePath]
-        }
-        return
-      }
-
-      if (page === '/_error' || page === '/404' || page === '/500') {
-        if (!isTargetLikeServerless(target)) {
-          server[serverBundlePath] = [absolutePagePath]
-        }
-
-        if (isTargetLikeServerless(target) && pageRuntime !== 'edge') {
+        } else if (page !== '/_app' && page !== '/_document') {
           server[serverBundlePath] = getServerlessEntry()
         }
+
+        if (page !== '/_document') {
+          client[clientBundlePath] = getClientEntry()
+        }
         return
       }
 
-      if (pageRuntime === 'edge') {
+      // ANY OTHER PAGE
+      client[clientBundlePath] = getClientEntry()
+
+      if (isTargetLikeServerless(target)) {
+        server[serverBundlePath] = getServerlessEntry()
+      } else if (pageRuntime !== 'edge') {
+        server[serverBundlePath] = [absolutePagePath]
+      } else {
         ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
         edgeServer[serverBundlePath] = getEdgeServerEntry()
-      }
-
-      if (!isTargetLikeServerless(target) && pageRuntime !== 'edge') {
-        server[serverBundlePath] = [absolutePagePath]
-      }
-
-      if (
-        isTargetLikeServerless(target) &&
-        pageRuntime !== 'edge' &&
-        page !== '/_app.server'
-      ) {
-        server[serverBundlePath] = getServerlessEntry()
       }
     })
   )
