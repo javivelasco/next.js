@@ -289,11 +289,19 @@ export async function createEntrypoints(
             previewMode,
           })
         )}!`
-      } else if (isApiRoute || target === 'server') {
-        if (!isEdgeRuntime || isReserved || isCustomError) {
-          server[serverBundlePath] = [absolutePagePath]
-        }
-      } else if (
+      }
+
+      if (
+        !(isApiRoute && isLikeServerless) &&
+        !(isEdgeRuntime && !isReserved && !isCustomError) &&
+        (isApiRoute || target === 'server')
+      ) {
+        server[serverBundlePath] = [absolutePagePath]
+      }
+
+      if (
+        !(isApiRoute && isLikeServerless) &&
+        !(isApiRoute || target === 'server') &&
         isLikeServerless &&
         page !== '/_app' &&
         page !== '/_app.server' &&
