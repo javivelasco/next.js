@@ -44,7 +44,7 @@ import { Sema } from 'next/dist/compiled/async-sema'
 import { MiddlewareManifest } from './webpack/plugins/middleware-plugin'
 
 const { builtinModules } = require('module')
-const RESERVED_PAGE = /^\/(_app|_app\.server|_error|_document|api(\/|$))/
+const RESERVED_PAGE = /^\/(_app|_error|_document|api(\/|$))/
 const fileGzipStats: { [k: string]: Promise<number> | undefined } = {}
 const fsStatGzip = (file: string) => {
   const cached = fileGzipStats[file]

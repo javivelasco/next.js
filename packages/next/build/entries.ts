@@ -253,7 +253,6 @@ export async function createEntrypoints(
       const isEdgeRuntime = pageRuntime === 'edge'
       const isFlight = isFlightPage(config, absolutePagePath)
       const isLikeServerless = isTargetLikeServerless(target)
-      const isReserved = isReservedPage(page)
 
       if (page.match(MIDDLEWARE_ROUTE)) {
         edgeServer[serverBundlePath] = finalizeEntrypoint({
@@ -267,7 +266,16 @@ export async function createEntrypoints(
         return
       }
 
-      if (isEdgeRuntime && !isReserved && !isCustomError && !isApiRoute) {
+      /**
+       * Edge Runtime pages are added to the EdgeServer compiler but we should
+       * skip special cases like API routes, custom error pages, and reserved
+       * pages.
+       */
+      if (isEdgeRuntime && !isReservedPage(page) && !isCustomError) {
+        if (isApiRoute) {
+          throw new Error('API routes are not supported by the Edge runtime')
+        }
+
         ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
         edgeServer[serverBundlePath] = finalizeEntrypoint({
           isEdgeServer: true,
@@ -278,13 +286,38 @@ export async function createEntrypoints(
         })
       }
 
+      if (isApiRoute) {
+        if (isLikeServerless) {
+          server[serverBundlePath] = `next-serverless-loader?${stringify(
+            getServerlessLoaderOpts({
+              buildId,
+              config,
+              loadedEnvFiles,
+              page,
+              pages,
+              previewMode,
+            })
+          )}!`
+          return
+        }
+
+        server[serverBundlePath] = [absolutePagePath]
+        return
+      }
+
+      if (
+        !isLikeServerless &&
+        (!isEdgeRuntime || isReservedPage(page) || isCustomError)
+      ) {
+        server[serverBundlePath] = [absolutePagePath]
+      }
+
       if (
         isLikeServerless &&
-        (isApiRoute ||
-          (!isEdgeRuntime &&
-            page !== '/_app' &&
-            page !== '/_app.server' &&
-            page !== '/_document'))
+        !isEdgeRuntime &&
+        page !== '/_app' &&
+        page !== '/_app.server' &&
+        page !== '/_document'
       ) {
         server[serverBundlePath] = `next-serverless-loader?${stringify(
           getServerlessLoaderOpts({
@@ -298,15 +331,7 @@ export async function createEntrypoints(
         )}!`
       }
 
-      if (
-        (isApiRoute || !isLikeServerless) &&
-        !(isApiRoute && isLikeServerless) &&
-        !(isEdgeRuntime && !isReserved && !isCustomError)
-      ) {
-        server[serverBundlePath] = [absolutePagePath]
-      }
-
-      if (page !== '/_document' && page !== '/_app.server' && !isApiRoute) {
+      if (page !== '/_document' && page !== '/_app.server') {
         const pageLoader = `next-client-pages-loader?${stringify(
           getClientPagesLoader({ page, pages })
         )}!`
