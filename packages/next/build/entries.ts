@@ -278,7 +278,14 @@ export async function createEntrypoints(
         })
       }
 
-      if (isApiRoute && isLikeServerless) {
+      if (
+        isLikeServerless &&
+        (isApiRoute ||
+          (!isEdgeRuntime &&
+            page !== '/_app' &&
+            page !== '/_app.server' &&
+            page !== '/_document'))
+      ) {
         server[serverBundlePath] = `next-serverless-loader?${stringify(
           getServerlessLoaderOpts({
             buildId,
@@ -292,32 +299,11 @@ export async function createEntrypoints(
       }
 
       if (
+        (isApiRoute || !isLikeServerless) &&
         !(isApiRoute && isLikeServerless) &&
-        !(isEdgeRuntime && !isReserved && !isCustomError) &&
-        (isApiRoute || target === 'server')
+        !(isEdgeRuntime && !isReserved && !isCustomError)
       ) {
         server[serverBundlePath] = [absolutePagePath]
-      }
-
-      if (
-        !(isApiRoute && isLikeServerless) &&
-        !(isApiRoute || target === 'server') &&
-        isLikeServerless &&
-        page !== '/_app' &&
-        page !== '/_app.server' &&
-        page !== '/_document' &&
-        !isEdgeRuntime
-      ) {
-        server[serverBundlePath] = `next-serverless-loader?${stringify(
-          getServerlessLoaderOpts({
-            buildId,
-            config,
-            loadedEnvFiles,
-            page,
-            pages,
-            previewMode,
-          })
-        )}!`
       }
 
       if (page !== '/_document' && page !== '/_app.server' && !isApiRoute) {
