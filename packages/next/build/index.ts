@@ -318,17 +318,18 @@ export default async function build(
     const entrypoints = await nextBuildSpan
       .traceChild('create-entrypoints')
       .traceAsyncFn(() =>
-        createEntrypoints(
-          mappedPages,
-          target,
+        createEntrypoints({
           buildId,
-          previewProps,
           config,
-          loadedEnvFiles,
+          envFiles: loadedEnvFiles,
+          isDev: false,
+          pages: mappedPages,
           pagesDir,
-          false
-        )
+          previewMode: previewProps,
+          target,
+        })
       )
+
     const pageKeys = Object.keys(mappedPages)
     const conflictingPublicFiles: string[] = []
     const hasPages404 = mappedPages['/404']?.startsWith(PAGES_DIR_ALIAS)

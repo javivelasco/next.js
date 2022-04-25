@@ -407,16 +407,16 @@ export default class HotReloader {
       const entrypoints = await webpackConfigSpan
         .traceChild('create-entrypoints')
         .traceAsyncFn(() =>
-          createEntrypoints(
-            this.pagesMapping,
-            'server',
-            this.buildId,
-            this.previewProps,
-            this.config,
-            [],
-            this.pagesDir,
-            true
-          )
+          createEntrypoints({
+            buildId: this.buildId,
+            config: this.config,
+            envFiles: [],
+            isDev: true,
+            pages: this.pagesMapping,
+            pagesDir: this.pagesDir,
+            previewMode: this.previewProps,
+            target: 'server',
+          })
         )
 
       const commonWebpackOptions = {
@@ -470,19 +470,19 @@ export default class HotReloader {
       },
       isDevFallback: true,
       entrypoints: (
-        await createEntrypoints(
-          {
+        await createEntrypoints({
+          buildId: this.buildId,
+          config: this.config,
+          envFiles: [],
+          isDev: true,
+          pages: {
             '/_app': 'next/dist/pages/_app',
             '/_error': 'next/dist/pages/_error',
           },
-          'server',
-          this.buildId,
-          this.previewProps,
-          this.config,
-          [],
-          this.pagesDir,
-          true
-        )
+          pagesDir: this.pagesDir,
+          previewMode: this.previewProps,
+          target: 'server',
+        })
       ).client,
       hasReactRoot: this.hasReactRoot,
     })
