@@ -307,42 +307,45 @@ export async function createEntrypoints(
         return
       }
 
-      if (
-        pageRuntime === 'edge' &&
-        page !== '/_app' &&
-        page !== '/_document' &&
-        page !== '/_error' &&
-        page !== '/404' &&
-        page !== '/500'
-      ) {
+      // Every page is added to the client bundle except two that are only
+      // server pages
+      if (page !== '/_document' && page !== '/_app.server') {
+        client[clientBundlePath] = getClientEntry()
+      }
+
+      if (page === '/_app' || page === '/_document') {
+        if (!isTargetLikeServerless(target)) {
+          server[serverBundlePath] = [absolutePagePath]
+        }
+        return
+      }
+
+      if (page === '/_error' || page === '/404' || page === '/500') {
+        if (!isTargetLikeServerless(target)) {
+          server[serverBundlePath] = [absolutePagePath]
+        }
+
+        if (isTargetLikeServerless(target) && pageRuntime !== 'edge') {
+          server[serverBundlePath] = getServerlessEntry()
+        }
+        return
+      }
+
+      if (pageRuntime === 'edge') {
         ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
         edgeServer[serverBundlePath] = getEdgeServerEntry()
       }
 
-      if (
-        !isTargetLikeServerless(target) &&
-        (pageRuntime !== 'edge' ||
-          page === '/_app' ||
-          page === '/_document' ||
-          page === '/_error' ||
-          page === '/404' ||
-          page === '/500')
-      ) {
+      if (!isTargetLikeServerless(target) && pageRuntime !== 'edge') {
         server[serverBundlePath] = [absolutePagePath]
       }
 
       if (
         isTargetLikeServerless(target) &&
         pageRuntime !== 'edge' &&
-        page !== '/_app' &&
-        page !== '/_app.server' &&
-        page !== '/_document'
+        page !== '/_app.server'
       ) {
         server[serverBundlePath] = getServerlessEntry()
-      }
-
-      if (page !== '/_document' && page !== '/_app.server') {
-        client[clientBundlePath] = getClientEntry()
       }
     })
   )
