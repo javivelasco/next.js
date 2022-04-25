@@ -312,11 +312,7 @@ export async function createEntrypoints(
         )}!`
       }
 
-      if (page === '/_document' || page === '/_app.server') {
-        return
-      }
-
-      if (!isApiRoute) {
+      if (page !== '/_document' && page !== '/_app.server' && !isApiRoute) {
         const pageLoader = `next-client-pages-loader?${stringify(
           getClientPagesLoader({ page, pages })
         )}!`
