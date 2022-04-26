@@ -11,6 +11,7 @@ import {
   finalizeEntrypoint,
   getClientEntry,
   getEdgeServerEntry,
+  runDependingOnPageType,
 } from '../../build/entries'
 import { watchCompilers } from '../../build/output'
 import getBaseWebpackConfig from '../../build/webpack-config'
@@ -541,81 +542,58 @@ export default class HotReloader {
               return
             }
 
-            const addEdgeServerEntry = () => {
-              if (isEdgeServerCompilation) {
-                entries[pageKey].status = BUILDING
-                entrypoints[bundlePath] = finalizeEntrypoint({
-                  name: bundlePath,
-                  isEdgeServer: true,
-                  isMiddleware: true,
-                  value: getEdgeServerEntry({
-                    absolutePagePath,
-                    buildId: this.buildId,
-                    bundlePath,
-                    config: this.config,
-                    isDev: true,
-                    page,
-                    pages: this.pagesMapping,
-                    ssrEntries,
-                  }),
-                })
-              }
-            }
-
-            const addNodeServerEntry = () => {
-              if (isNodeServerCompilation) {
-                entries[pageKey].status = BUILDING
-                let request = relative(config.context!, absolutePagePath)
-                if (!isAbsolute(request) && !request.startsWith('../')) {
-                  request = `./${request}`
+            runDependingOnPageType({
+              page,
+              pageRuntime: await getPageRuntime(absolutePagePath, this.config),
+              onEdgeServer: () => {
+                if (isEdgeServerCompilation) {
+                  entries[pageKey].status = BUILDING
+                  entrypoints[bundlePath] = finalizeEntrypoint({
+                    name: bundlePath,
+                    isEdgeServer: true,
+                    isMiddleware: true,
+                    value: getEdgeServerEntry({
+                      absolutePagePath,
+                      buildId: this.buildId,
+                      bundlePath,
+                      config: this.config,
+                      isDev: true,
+                      page,
+                      pages: this.pagesMapping,
+                      ssrEntries,
+                    }),
+                  })
                 }
+              },
+              onClient: () => {
+                if (isClientCompilation) {
+                  entries[pageKey].status = BUILDING
+                  entrypoints[bundlePath] = finalizeEntrypoint({
+                    name: bundlePath,
+                    isNodeServer: false,
+                    value: getClientEntry({
+                      absolutePagePath,
+                      page,
+                    }),
+                  })
+                }
+              },
+              onServer: () => {
+                if (isNodeServerCompilation) {
+                  entries[pageKey].status = BUILDING
+                  let request = relative(config.context!, absolutePagePath)
+                  if (!isAbsolute(request) && !request.startsWith('../')) {
+                    request = `./${request}`
+                  }
 
-                entrypoints[bundlePath] = finalizeEntrypoint({
-                  isNodeServer: true,
-                  name: bundlePath,
-                  value: request,
-                })
-              }
-            }
-
-            const addClientEntry = () => {
-              if (isClientCompilation) {
-                entries[pageKey].status = BUILDING
-                entrypoints[bundlePath] = finalizeEntrypoint({
-                  name: bundlePath,
-                  isNodeServer: false,
-                  value: getClientEntry({
-                    absolutePagePath,
-                    page,
-                  }),
-                })
-              }
-            }
-
-            if (page.match(MIDDLEWARE_ROUTE)) {
-              return addEdgeServerEntry()
-            } else if (page.match(API_ROUTE)) {
-              return addNodeServerEntry()
-            } else if (page === '/_document') {
-              return addNodeServerEntry()
-            } else if (
-              page === '/_app' ||
-              page === '/_error' ||
-              page === '/404' ||
-              page === '/500'
-            ) {
-              addClientEntry()
-              addNodeServerEntry()
-              return
-            }
-
-            addClientEntry()
-            const runtime = await getPageRuntime(absolutePagePath, this.config)
-            if (runtime === 'edge') {
-              return addEdgeServerEntry()
-            } else {
-              return addNodeServerEntry()
-            }
+                  entrypoints[bundlePath] = finalizeEntrypoint({
+                    isNodeServer: true,
+                    name: bundlePath,
+                    value: request,
+                  })
+                }
+              },
+            })
           })
         )
 

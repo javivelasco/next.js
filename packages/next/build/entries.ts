@@ -339,83 +339,46 @@ export async function createEntrypoints(params: CreateEntrypointsParams) {
       const bundleFile = normalizePagePath(page)
       const clientBundlePath = posix.join('pages', bundleFile)
       const serverBundlePath = posix.join('pages', bundleFile)
-      const pageRuntime = await getPageRuntime(
-        !pages[page].startsWith(PAGES_DIR_ALIAS)
-          ? require.resolve(pages[page])
-          : join(pagesDir, pages[page].replace(PAGES_DIR_ALIAS, '')),
-        config,
-        isDev
-      )
 
-      if (isTargetLikeServerless(target) && pageRuntime === 'edge') {
-        throw new Error(`Edge Runtime is not compatible with Serverless`)
-      }
-
-      if (isTargetLikeServerless(target) && page === '/_app.server') {
-        throw new Error(`RSC is not compatible with Serverless`)
-      }
-
-      const addClientEntry = () => {
-        client[clientBundlePath] = getClientEntry({
-          absolutePagePath: pages[page],
-          page,
-        })
-      }
-
-      const addServerEntry = () => {
-        if (isTargetLikeServerless(target)) {
-          if (page !== '/_app' && page !== '/_document') {
-            server[serverBundlePath] = getServerlessEntry({
-              ...params,
-              absolutePagePath: pages[page],
-              page,
-            })
+      runDependingOnPageType({
+        page,
+        pageRuntime: await getPageRuntime(
+          !pages[page].startsWith(PAGES_DIR_ALIAS)
+            ? require.resolve(pages[page])
+            : join(pagesDir, pages[page].replace(PAGES_DIR_ALIAS, '')),
+          config,
+          isDev
+        ),
+        onClient: () => {
+          client[clientBundlePath] = getClientEntry({
+            absolutePagePath: pages[page],
+            page,
+          })
+        },
+        onServer: () => {
+          if (isTargetLikeServerless(target)) {
+            if (page !== '/_app' && page !== '/_document') {
+              server[serverBundlePath] = getServerlessEntry({
+                ...params,
+                absolutePagePath: pages[page],
+                page,
+              })
+            }
+          } else {
+            server[serverBundlePath] = [pages[page]]
           }
-        } else {
-          server[serverBundlePath] = [pages[page]]
-        }
-      }
-
-      const addEdgeServerEntry = () => {
-        edgeServer[serverBundlePath] = getEdgeServerEntry({
-          ...params,
-          absolutePagePath: pages[page],
-          bundlePath: clientBundlePath,
-          isDev: false,
-          page,
-          ssrEntries,
-        })
-      }
-
-      if (page.match(MIDDLEWARE_ROUTE)) {
-        return addEdgeServerEntry()
-      }
-
-      if (page.match(API_ROUTE)) {
-        return addServerEntry()
-      }
-
-      if (page === '/_document') {
-        return addServerEntry()
-      }
-
-      if (
-        page === '/_app' ||
-        page === '/_error' ||
-        page === '/404' ||
-        page === '/500'
-      ) {
-        addClientEntry()
-        addServerEntry()
-        return
-      }
-
-      addClientEntry()
-      if (pageRuntime === 'edge') {
-        addEdgeServerEntry()
-      } else {
-        addServerEntry()
-      }
+        },
+        onEdgeServer: () => {
+          edgeServer[serverBundlePath] = getEdgeServerEntry({
+            ...params,
+            absolutePagePath: pages[page],
+            bundlePath: clientBundlePath,
+            isDev: false,
+            page,
+            ssrEntries,
+          })
+        },
+      })
     })
   )
 
@@ -423,6 +386,33 @@ export async function createEntrypoints(params: CreateEntrypointsParams) {
     client,
     server,
     edgeServer,
+  }
+}
+
+export function runDependingOnPageType<T>(params: {
+  onClient: () => T
+  onEdgeServer: () => T
+  onServer: () => T
+  page: string
+  pageRuntime: PageRuntime
+}) {
+  if (params.page.match(MIDDLEWARE_ROUTE)) {
+    return params.onEdgeServer()
+  } else if (params.page.match(API_ROUTE)) {
+    return params.onServer()
+  } else if (params.page === '/_document') {
+    return params.onServer()
+  } else if (
+    params.page === '/_app' ||
+    params.page === '/_error' ||
+    params.page === '/404' ||
+    params.page === '/500'
+  ) {
+    return [params.onClient(), params.onServer()]
+  } else if (params.pageRuntime === 'edge') {
+    return [params.onClient(), params.onEdgeServer()]
+  } else {
+    return [params.onClient(), params.onServer()]
   }
 }
 

@@ -1,15 +1,14 @@
-import { EventEmitter } from 'events'
-import { join, posix } from 'path'
+import type ws from 'ws'
 import type { webpack5 as webpack } from 'next/dist/compiled/webpack/webpack'
+import type { NextConfigComplete } from '../config-shared'
+import { EventEmitter } from 'events'
+import { findPageFile } from '../lib/find-page-file'
+import { getPageRuntime, runDependingOnPageType } from '../../build/entries'
+import { join, posix } from 'path'
 import { normalizePagePath, normalizePathSep } from '../normalize-page-path'
 import { pageNotFoundError } from '../require'
-import { findPageFile } from '../lib/find-page-file'
-import getRouteFromEntrypoint from '../get-route-from-entrypoint'
-import { API_ROUTE, MIDDLEWARE_ROUTE } from '../../lib/constants'
 import { reportTrigger } from '../../build/output'
-import type ws from 'ws'
-import { NextConfigComplete } from '../config-shared'
-import { getPageRuntime } from '../../build/entries'
+import getRouteFromEntrypoint from '../get-route-from-entrypoint'
 
 export const ADDED = Symbol('added')
 export const BUILDING = Symbol('building')
@@ -199,29 +198,13 @@ export default function onDemandEntryHandler(
         })
       }
 
-      let promise: Promise<void | void[]>
-
-      if (page.match(MIDDLEWARE_ROUTE)) {
-        promise = addPageEntry('edge-server')
-      } else if (page.match(API_ROUTE)) {
-        promise = addPageEntry('server')
-      } else if (page === '/_document') {
-        promise = addPageEntry('server')
-      } else if (
-        page === '/_app' ||
-        page === '/_error' ||
-        page === '/404' ||
-        page === '/500'
-      ) {
-        promise = Promise.all([addPageEntry('client'), addPageEntry('server')])
-      } else {
-        promise = Promise.all([
-          addPageEntry('client'),
-          (await getPageRuntime(absolutePagePath, nextConfig)) === 'edge'
-            ? addPageEntry('edge-server')
-            : addPageEntry('server'),
-        ])
-      }
+      const promise = runDependingOnPageType({
+        page,
+        pageRuntime: await getPageRuntime(absolutePagePath, nextConfig),
+        onClient: () => addPageEntry('client'),
+        onServer: () => addPageEntry('server'),
+        onEdgeServer: () => addPageEntry('edge-server'),
+      })
 
       if (entriesChanged) {
         reportTrigger(
@@ -232,7 +215,7 @@ export default function onDemandEntryHandler(
         invalidator.invalidate()
       }
 
-      return promise
+      return Array.isArray(promise) ? Promise.all(promise) : promise
     },
 
     onHMR(client: ws) {
