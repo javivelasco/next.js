@@ -551,7 +551,7 @@ export default class HotReloader {
                   entrypoints[bundlePath] = finalizeEntrypoint({
                     name: bundlePath,
                     isEdgeServer: true,
-                    isMiddleware: true,
+                    isMiddleware: Boolean(page.match(MIDDLEWARE_ROUTE)),
                     value: getEdgeServerEntry({
                       absolutePagePath,
                       buildId: this.buildId,

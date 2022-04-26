@@ -253,7 +253,7 @@ export function getEdgeServerEntry(opts: {
     absolutePagePath: opts.absolutePagePath,
     buildId: opts.buildId,
     dev: opts.isDev,
-    isServerComponent: isFlightPage(opts.config, opts.pages[opts.page]),
+    isServerComponent: isFlightPage(opts.config, opts.absolutePagePath),
     page: opts.page,
     stringifiedConfig: JSON.stringify(opts.config),
   }
@@ -409,7 +409,9 @@ export function runDependingOnPageType<T>(params: {
     params.page === '/500'
   ) {
     return [params.onClient(), params.onServer()]
-  } else if (params.pageRuntime === 'edge') {
+  }
+
+  if (params.pageRuntime === 'edge') {
     return [params.onClient(), params.onEdgeServer()]
   } else {
     return [params.onClient(), params.onServer()]
