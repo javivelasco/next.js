@@ -592,7 +592,6 @@ export default class HotReloader {
               }
             }
 
-            // Refactored generate entries
             if (page.match(MIDDLEWARE_ROUTE)) {
               return addEdgeServerEntry()
             } else if (page.match(API_ROUTE)) {
