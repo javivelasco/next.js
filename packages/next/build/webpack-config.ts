@@ -1257,7 +1257,7 @@ export default async function getBaseWebpackConfig(
               },
             ]
           : []),
-        ...(isEdgeServer
+        ...(isEdgeServer || isClient
           ? [
               {
                 oneOf: [
@@ -2169,16 +2169,14 @@ export default async function getBaseWebpackConfig(
       }
       delete entry['main.js']
 
-      if (!isEdgeServer) {
-        for (const name of Object.keys(entry)) {
-          entry[name] = finalizeEntrypoint({
-            value: entry[name],
-            isNodeServer: isNodeServer,
-            isEdgeServer: isEdgeServer,
-            isMiddleware: MIDDLEWARE_ROUTE.test(name),
-            name,
-          })
-        }
+      for (const name of Object.keys(entry)) {
+        entry[name] = finalizeEntrypoint({
+          value: entry[name],
+          isNodeServer: isNodeServer,
+          isEdgeServer: isEdgeServer,
+          isMiddleware: MIDDLEWARE_ROUTE.test(name),
+          name,
+        })
       }
 
       return entry

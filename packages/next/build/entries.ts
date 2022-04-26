@@ -225,6 +225,109 @@ interface CreateEntrypointsParams {
   target: 'server' | 'serverless' | 'experimental-serverless-trace'
 }
 
+export function getEdgeServerEntry(opts: {
+  absolutePagePath: string
+  buildId: string
+  config: NextConfigComplete
+  isDev: boolean
+  bundlePath: string
+  page: string
+  pages: { [page: string]: string }
+  ssrEntries: Map<string, { requireFlightManifest: boolean }>
+}): ObjectValue<webpack5.EntryObject> {
+  if (opts.page.match(MIDDLEWARE_ROUTE)) {
+    const loaderParams: MiddlewareLoaderOptions = {
+      absolutePagePath: opts.absolutePagePath,
+      page: opts.page,
+    }
+
+    return `next-middleware-loader?${stringify(loaderParams)}!`
+  }
+
+  const loaderParams: MiddlewareSSRLoaderQuery = {
+    absolute500Path: opts.pages['/500'] || '',
+    absoluteAppPath: opts.pages['/_app'],
+    absoluteAppServerPath: opts.pages['/_app.server'],
+    absoluteDocumentPath: opts.pages['/_document'],
+    absoluteErrorPath: opts.pages['/_error'],
+    absolutePagePath: opts.absolutePagePath,
+    buildId: opts.buildId,
+    dev: opts.isDev,
+    isServerComponent: isFlightPage(opts.config, opts.pages[opts.page]),
+    page: opts.page,
+    stringifiedConfig: JSON.stringify(opts.config),
+  }
+
+  ssrEntries.set(opts.bundlePath, {
+    requireFlightManifest: isFlightPage(opts.config, opts.absolutePagePath),
+  })
+
+  return `next-middleware-ssr-loader?${stringify(loaderParams)}!`
+}
+
+export function getServerlessEntry(opts: {
+  absolutePagePath: string
+  buildId: string
+  config: NextConfigComplete
+  envFiles: LoadedEnvFiles
+  page: string
+  previewMode: __ApiPreviewProps
+  pages: { [page: string]: string }
+}): ObjectValue<webpack5.EntryObject> {
+  const loaderParams: ServerlessLoaderQuery = {
+    absolute404Path: opts.pages['/404'] || '',
+    absoluteAppPath: opts.pages['/_app'],
+    absoluteAppServerPath: opts.pages['/_app.server'],
+    absoluteDocumentPath: opts.pages['/_document'],
+    absoluteErrorPath: opts.pages['/_error'],
+    absolutePagePath: opts.absolutePagePath,
+    assetPrefix: opts.config.assetPrefix,
+    basePath: opts.config.basePath,
+    buildId: opts.buildId,
+    canonicalBase: opts.config.amp.canonicalBase || '',
+    distDir: DOT_NEXT_ALIAS,
+    generateEtags: opts.config.generateEtags ? 'true' : '',
+    i18n: opts.config.i18n ? JSON.stringify(opts.config.i18n) : '',
+    // base64 encode to make sure contents don't break webpack URL loading
+    loadedEnvFiles: Buffer.from(JSON.stringify(opts.envFiles)).toString(
+      'base64'
+    ),
+    page: opts.page,
+    poweredByHeader: opts.config.poweredByHeader ? 'true' : '',
+    previewProps: JSON.stringify(opts.previewMode),
+    reactRoot: !!opts.config.experimental.reactRoot ? 'true' : '',
+    runtimeConfig:
+      Object.keys(opts.config.publicRuntimeConfig).length > 0 ||
+      Object.keys(opts.config.serverRuntimeConfig).length > 0
+        ? JSON.stringify({
+            publicRuntimeConfig: opts.config.publicRuntimeConfig,
+            serverRuntimeConfig: opts.config.serverRuntimeConfig,
+          })
+        : '',
+  }
+
+  return `next-serverless-loader?${stringify(loaderParams)}!`
+}
+
+export function getClientEntry(opts: {
+  absolutePagePath: string
+  page: string
+}) {
+  const loaderOptions: ClientPagesLoaderOptions = {
+    absolutePagePath: opts.absolutePagePath,
+    page: opts.page,
+  }
+
+  const pageLoader = `next-client-pages-loader?${stringify(loaderOptions)}!`
+
+  // Make sure next/router is a dependency of _app or else chunk splitting
+  // might cause the router to not be able to load causing hydration
+  // to fail
+  return opts.page === '/_app'
+    ? [pageLoader, require.resolve('../client/router')]
+    : pageLoader
+}
+
 export async function createEntrypoints(params: CreateEntrypointsParams) {
   const { config, pages, pagesDir, isDev, target } = params
   const edgeServer: webpack5.EntryObject = {}
@@ -252,26 +355,21 @@ export async function createEntrypoints(params: CreateEntrypointsParams) {
         throw new Error(`RSC is not compatible with Serverless`)
       }
 
-      // Make sure next/router is a dependency of _app or else chunk splitting
-      // might cause the router to not be able to load causing hydration
-      // to fail
       const addClientEntry = () => {
-        const pageLoader = `next-client-pages-loader?${stringify(
-          getClientPagesLoader(page, params)
-        )}!`
-
-        client[clientBundlePath] =
-          page === '/_app'
-            ? [pageLoader, require.resolve('../client/router')]
-            : pageLoader
+        client[clientBundlePath] = getClientEntry({
+          absolutePagePath: pages[page],
+          page,
+        })
       }
 
       const addServerEntry = () => {
         if (isTargetLikeServerless(target)) {
           if (page !== '/_app' && page !== '/_document') {
-            server[serverBundlePath] = `next-serverless-loader?${stringify(
-              getServerlessLoaderOpts(page, params)
-            )}!`
+            server[serverBundlePath] = getServerlessEntry({
+              ...params,
+              absolutePagePath: pages[page],
+              page,
+            })
           }
         } else {
           server[serverBundlePath] = [pages[page]]
@@ -279,26 +377,14 @@ export async function createEntrypoints(params: CreateEntrypointsParams) {
       }
 
       const addEdgeServerEntry = () => {
-        if (page.match(MIDDLEWARE_ROUTE)) {
-          edgeServer[serverBundlePath] = finalizeEntrypoint({
-            isEdgeServer: true,
-            isMiddleware: true,
-            name: '[name].js',
-            value: `next-middleware-loader?${stringify(
-              getNextMiddlewareLoaderOpts(page, params)
-            )}!`,
-          })
-        } else {
-          const isFlight = isFlightPage(config, pages[page])
-          ssrEntries.set(clientBundlePath, { requireFlightManifest: isFlight })
-          edgeServer[serverBundlePath] = finalizeEntrypoint({
-            isEdgeServer: true,
-            name: '[name].js',
-            value: `next-middleware-ssr-loader?${stringify(
-              getMiddlewareSSRLoaderOpts(page, params)
-            )}!`,
-          })
-        }
+        edgeServer[serverBundlePath] = getEdgeServerEntry({
+          ...params,
+          absolutePagePath: pages[page],
+          bundlePath: clientBundlePath,
+          isDev: false,
+          page,
+          ssrEntries,
+        })
       }
 
       if (page.match(MIDDLEWARE_ROUTE)) {
@@ -337,82 +423,6 @@ export async function createEntrypoints(params: CreateEntrypointsParams) {
     client,
     server,
     edgeServer,
-  }
-}
-
-function getNextMiddlewareLoaderOpts(
-  page: string,
-  opts: CreateEntrypointsParams
-): MiddlewareLoaderOptions {
-  return {
-    absolutePagePath: opts.pages[page],
-    page: page,
-  }
-}
-
-function getClientPagesLoader(
-  page: string,
-  opts: CreateEntrypointsParams
-): ClientPagesLoaderOptions {
-  return {
-    absolutePagePath: opts.pages[page],
-    page: page,
-  }
-}
-
-function getServerlessLoaderOpts(
-  page: string,
-  opts: CreateEntrypointsParams
-): ServerlessLoaderQuery {
-  return {
-    absolute404Path: opts.pages['/404'] || '',
-    absoluteAppPath: opts.pages['/_app'],
-    absoluteAppServerPath: opts.pages['/_app.server'],
-    absoluteDocumentPath: opts.pages['/_document'],
-    absoluteErrorPath: opts.pages['/_error'],
-    absolutePagePath: opts.pages[page],
-    assetPrefix: opts.config.assetPrefix,
-    basePath: opts.config.basePath,
-    buildId: opts.buildId,
-    canonicalBase: opts.config.amp.canonicalBase || '',
-    distDir: DOT_NEXT_ALIAS,
-    generateEtags: opts.config.generateEtags ? 'true' : '',
-    i18n: opts.config.i18n ? JSON.stringify(opts.config.i18n) : '',
-    // base64 encode to make sure contents don't break webpack URL loading
-    loadedEnvFiles: Buffer.from(JSON.stringify(opts.envFiles)).toString(
-      'base64'
-    ),
-    page: page,
-    poweredByHeader: opts.config.poweredByHeader ? 'true' : '',
-    previewProps: JSON.stringify(opts.previewMode),
-    reactRoot: !!opts.config.experimental.reactRoot ? 'true' : '',
-    runtimeConfig:
-      Object.keys(opts.config.publicRuntimeConfig).length > 0 ||
-      Object.keys(opts.config.serverRuntimeConfig).length > 0
-        ? JSON.stringify({
-            publicRuntimeConfig: opts.config.publicRuntimeConfig,
-            serverRuntimeConfig: opts.config.serverRuntimeConfig,
-          })
-        : '',
-  }
-}
-
-function getMiddlewareSSRLoaderOpts(
-  page: string,
-  opts: CreateEntrypointsParams
-): MiddlewareSSRLoaderQuery {
-  return {
-    absolute500Path: opts.pages['/500'] || '',
-    absoluteAppPath: opts.pages['/_app'],
-    absoluteAppServerPath: opts.pages['/_app.server'],
-    absoluteDocumentPath: opts.pages['/_document'],
-    absoluteErrorPath: opts.pages['/_error'],
-    absolutePagePath: opts.pages[page],
-    buildId: opts.buildId,
-    dev: false,
-    isServerComponent: isFlightPage(opts.config, opts.pages[page]),
-    page: page,
-    stringifiedConfig: JSON.stringify(opts.config),
   }
 }
 
