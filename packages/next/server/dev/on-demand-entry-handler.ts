@@ -198,7 +198,7 @@ export default function onDemandEntryHandler(
         })
       }
 
-      const promise = runDependingOnPageType({
+      const promises = runDependingOnPageType({
         page,
         pageRuntime: await getPageRuntime(absolutePagePath, nextConfig),
         onClient: () => addPageEntry('client'),
@@ -208,14 +208,14 @@ export default function onDemandEntryHandler(
 
       if (entriesChanged) {
         reportTrigger(
-          clientOnly || Array.isArray(promise)
+          clientOnly || promises.length > 1
             ? `${page} (client and server)`
             : page
         )
         invalidator.invalidate()
       }
 
-      return Array.isArray(promise) ? Promise.all(promise) : promise
+      return Promise.all(promises)
     },
 
     onHMR(client: ws) {

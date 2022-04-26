@@ -397,11 +397,11 @@ export function runDependingOnPageType<T>(params: {
   pageRuntime: PageRuntime
 }) {
   if (params.page.match(MIDDLEWARE_ROUTE)) {
-    return params.onEdgeServer()
+    return [params.onEdgeServer()]
   } else if (params.page.match(API_ROUTE)) {
-    return params.onServer()
+    return [params.onServer()]
   } else if (params.page === '/_document') {
-    return params.onServer()
+    return [params.onServer()]
   } else if (
     params.page === '/_app' ||
     params.page === '/_error' ||
@@ -409,12 +409,11 @@ export function runDependingOnPageType<T>(params: {
     params.page === '/500'
   ) {
     return [params.onClient(), params.onServer()]
-  }
-
-  if (params.pageRuntime === 'edge') {
-    return [params.onClient(), params.onEdgeServer()]
   } else {
-    return [params.onClient(), params.onServer()]
+    return [
+      params.onClient(),
+      params.pageRuntime === 'edge' ? params.onEdgeServer() : params.onServer(),
+    ]
   }
 }
 
