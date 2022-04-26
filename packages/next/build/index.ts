@@ -629,17 +629,17 @@ export default async function build(
           Promise.all([
             getBaseWebpackConfig(dir, {
               ...commonWebpackOptions,
-              isClient: true,
+              compilerType: 'client',
               entrypoints: entrypoints.client,
             }),
             getBaseWebpackConfig(dir, {
               ...commonWebpackOptions,
-              isNodeServer: true,
+              compilerType: 'server',
               entrypoints: entrypoints.server,
             }),
             getBaseWebpackConfig(dir, {
               ...commonWebpackOptions,
-              isEdgeServer: true,
+              compilerType: 'edge-server',
               entrypoints: entrypoints.edgeServer,
             }),
           ])

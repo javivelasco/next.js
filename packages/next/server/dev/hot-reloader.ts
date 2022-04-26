@@ -431,17 +431,17 @@ export default class HotReloader {
           Promise.all([
             getBaseWebpackConfig(this.dir, {
               ...commonWebpackOptions,
-              isClient: true,
+              compilerType: 'client',
               entrypoints: entrypoints.client,
             }),
             getBaseWebpackConfig(this.dir, {
               ...commonWebpackOptions,
-              isNodeServer: true,
+              compilerType: 'server',
               entrypoints: entrypoints.server,
             }),
             getBaseWebpackConfig(this.dir, {
               ...commonWebpackOptions,
-              isEdgeServer: true,
+              compilerType: 'edge-server',
               entrypoints: entrypoints.edgeServer,
             }),
           ])
@@ -455,7 +455,7 @@ export default class HotReloader {
     const fallbackConfig = await getBaseWebpackConfig(this.dir, {
       runWebpackSpan: this.hotReloaderSpan,
       dev: true,
-      isClient: true,
+      compilerType: 'client',
       config: this.config,
       buildId: this.buildId,
       pagesDir: this.pagesDir,
@@ -549,9 +549,8 @@ export default class HotReloader {
                 if (isEdgeServerCompilation) {
                   entries[pageKey].status = BUILDING
                   entrypoints[bundlePath] = finalizeEntrypoint({
+                    compilerType: 'edge-server',
                     name: bundlePath,
-                    isEdgeServer: true,
-                    isMiddleware: Boolean(page.match(MIDDLEWARE_ROUTE)),
                     value: getEdgeServerEntry({
                       absolutePagePath,
                       buildId: this.buildId,
@@ -570,7 +569,7 @@ export default class HotReloader {
                   entries[pageKey].status = BUILDING
                   entrypoints[bundlePath] = finalizeEntrypoint({
                     name: bundlePath,
-                    isNodeServer: false,
+                    compilerType: 'client',
                     value: getClientEntry({
                       absolutePagePath,
                       page,
@@ -587,7 +586,7 @@ export default class HotReloader {
                   }
 
                   entrypoints[bundlePath] = finalizeEntrypoint({
-                    isNodeServer: true,
+                    compilerType: 'server',
                     name: bundlePath,
                     value: request,
                   })

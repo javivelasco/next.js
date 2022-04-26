@@ -228,9 +228,9 @@ interface CreateEntrypointsParams {
 export function getEdgeServerEntry(opts: {
   absolutePagePath: string
   buildId: string
+  bundlePath: string
   config: NextConfigComplete
   isDev: boolean
-  bundlePath: string
   page: string
   pages: { [page: string]: string }
   ssrEntries: Map<string, { requireFlightManifest: boolean }>
@@ -420,28 +420,20 @@ export function runDependingOnPageType<T>(params: {
 
 export function finalizeEntrypoint({
   name,
+  compilerType,
   value,
-  isNodeServer,
-  isMiddleware,
-  isEdgeServer,
 }: {
+  compilerType?: 'client' | 'server' | 'edge-server'
   name: string
   value: ObjectValue<webpack5.EntryObject>
-  isNodeServer?: boolean
-  isMiddleware?: boolean
-  isEdgeServer?: boolean
 }): ObjectValue<webpack5.EntryObject> {
-  if (isEdgeServer && isNodeServer) {
-    throw new Error(`You can't provide both "isNodeServer" and "isEdgeServer"`)
-  }
-
   const entry =
     typeof value !== 'object' || Array.isArray(value)
       ? { import: value }
       : value
 
-  if (isNodeServer) {
-    const isApi = name.startsWith('pages/api/')
+  if (compilerType === 'server') {
+    const isApi = name.startsWith('pages/api')
     return {
       publicPath: isApi ? '' : undefined,
       runtime: isApi ? 'webpack-api-runtime' : 'webpack-runtime',
@@ -450,9 +442,9 @@ export function finalizeEntrypoint({
     }
   }
 
-  if (isEdgeServer) {
+  if (compilerType === 'edge-server') {
     return {
-      layer: isMiddleware ? 'middleware' : undefined,
+      layer: MIDDLEWARE_ROUTE.test(name) ? 'middleware' : undefined,
       library: { name: ['_ENTRIES', `middleware_[name]`], type: 'assign' },
       runtime: EDGE_RUNTIME_WEBPACK,
       asyncChunks: false,

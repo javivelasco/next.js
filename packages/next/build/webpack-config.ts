@@ -10,7 +10,6 @@ import {
   NEXT_PROJECT_ROOT,
   NEXT_PROJECT_ROOT_DIST_CLIENT,
   PAGES_DIR_ALIAS,
-  MIDDLEWARE_ROUTE,
 } from '../lib/constants'
 import { fileExists } from '../lib/file-exists'
 import { CustomRoutes } from '../lib/load-custom-routes.js'
@@ -303,41 +302,34 @@ export default async function getBaseWebpackConfig(
   {
     buildId,
     config,
+    compilerType,
     dev = false,
-    isClient = false,
-    isNodeServer = false,
-    isEdgeServer = false,
-    pagesDir,
-    target = 'server',
-    reactProductionProfiling = false,
     entrypoints,
-    rewrites,
-    isDevFallback = false,
-    runWebpackSpan,
     hasReactRoot,
+    isDevFallback = false,
+    pagesDir,
+    reactProductionProfiling = false,
+    rewrites,
+    runWebpackSpan,
+    target = 'server',
   }: {
     buildId: string
     config: NextConfigComplete
+    compilerType: 'client' | 'server' | 'edge-server'
     dev?: boolean
-    isClient?: boolean
-    isNodeServer?: boolean
-    isEdgeServer?: boolean
-    pagesDir: string
-    target?: string
-    reactProductionProfiling?: boolean
     entrypoints: webpack5.EntryObject
-    rewrites: CustomRoutes['rewrites']
-    isDevFallback?: boolean
-    runWebpackSpan: Span
     hasReactRoot: boolean
+    isDevFallback?: boolean
+    pagesDir: string
+    reactProductionProfiling?: boolean
+    rewrites: CustomRoutes['rewrites']
+    runWebpackSpan: Span
+    target?: string
   }
 ): Promise<webpack.Configuration> {
-  if ([isClient, isNodeServer, isEdgeServer].filter(Boolean).length !== 1) {
-    throw new Error(
-      `You must provide either "isClient", "isNodeServer" or "isEdgeServer"`
-    )
-  }
-
+  const isClient = compilerType === 'client'
+  const isEdgeServer = compilerType === 'edge-server'
+  const isNodeServer = compilerType === 'server'
   const { useTypeScript, jsConfig, resolvedBaseUrl } = await loadJsConfig(
     dir,
     config
@@ -2172,9 +2164,7 @@ export default async function getBaseWebpackConfig(
       for (const name of Object.keys(entry)) {
         entry[name] = finalizeEntrypoint({
           value: entry[name],
-          isNodeServer: isNodeServer,
-          isEdgeServer: isEdgeServer,
-          isMiddleware: MIDDLEWARE_ROUTE.test(name),
+          compilerType,
           name,
         })
       }
