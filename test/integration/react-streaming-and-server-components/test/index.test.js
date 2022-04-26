@@ -210,5 +210,5 @@ runProdSuite('Edge runtime', appDir, edgeRuntimeBasicSuite)
 runDevSuite('Custom App', appDir, customAppPageSuite)
 runProdSuite('Custom App', appDir, customAppPageSuite)
 
-// runDevSuite('CSS', appDir, cssSuite)
+runDevSuite('CSS', appDir, cssSuite)
 runProdSuite('CSS', appDir, cssSuite)
