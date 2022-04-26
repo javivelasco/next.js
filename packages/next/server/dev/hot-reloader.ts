@@ -843,7 +843,7 @@ export default class HotReloader {
     this.middlewares = [
       getOverlayMiddleware({
         rootDirectory: this.dir,
-        stats: () => this.clientStats,
+        stats: () => this.edgeServerStats,
         serverStats: () => this.serverStats,
       }),
     ]
@@ -864,41 +864,26 @@ export default class HotReloader {
   }
 
   public async getCompilationErrors(page: string) {
-    const normalizedPage = normalizePathSep(page)
+    const getErrors = ({ compilation }: webpack5.Stats) => {
+      const failedPages = erroredPages(compilation)
+      const normalizedPage = normalizePathSep(page)
+      // If there is an error related to the requesting page we display it instead of the first error
+      return failedPages[normalizedPage]?.length > 0
+        ? failedPages[normalizedPage]
+        : compilation.errors
+    }
 
     if (this.clientError || this.serverError) {
       return [this.clientError || this.serverError]
     } else if (this.clientStats?.hasErrors()) {
-      const { compilation } = this.clientStats
-      const failedPages = erroredPages(compilation)
-
-      // If there is an error related to the requesting page we display it instead of the first error
-      if (
-        failedPages[normalizedPage] &&
-        failedPages[normalizedPage].length > 0
-      ) {
-        return failedPages[normalizedPage]
-      }
-
-      // If none were found we still have to show the other errors
-      return this.clientStats.compilation.errors
+      return getErrors(this.clientStats)
     } else if (this.serverStats?.hasErrors()) {
-      const { compilation } = this.serverStats
-      const failedPages = erroredPages(compilation)
-
-      // If there is an error related to the requesting page we display it instead of the first error
-      if (
-        failedPages[normalizedPage] &&
-        failedPages[normalizedPage].length > 0
-      ) {
-        return failedPages[normalizedPage]
-      }
-
-      // If none were found we still have to show the other errors
-      return this.serverStats.compilation.errors
+      return getErrors(this.serverStats)
+    } else if (this.edgeServerStats?.hasErrors()) {
+      return getErrors(this.edgeServerStats)
+    } else {
+      return []
     }
-
-    return []
   }
 
   public send(action?: string | any, ...args: any[]): void {
