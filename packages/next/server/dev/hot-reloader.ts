@@ -9,6 +9,8 @@ import {
   createEntrypoints,
   createPagesMapping,
   finalizeEntrypoint,
+  getClientEntry,
+  getEdgeServerEntry,
 } from '../../build/entries'
 import { watchCompilers } from '../../build/output'
 import getBaseWebpackConfig from '../../build/webpack-config'
@@ -25,15 +27,8 @@ import onDemandEntryHandler, {
 import { denormalizePagePath, normalizePathSep } from '../normalize-page-path'
 import getRouteFromEntrypoint from '../get-route-from-entrypoint'
 import { fileExists } from '../../lib/file-exists'
-import { ClientPagesLoaderOptions } from '../../build/webpack/loaders/next-client-pages-loader'
 import { ssrEntries } from '../../build/webpack/plugins/middleware-plugin'
-import { stringify } from 'querystring'
-import {
-  difference,
-  isCustomErrorPage,
-  isFlightPage,
-  isReservedPage,
-} from '../../build/utils'
+import { difference } from '../../build/utils'
 import { NextConfigComplete } from '../config-shared'
 import { CustomRoutes } from '../../lib/load-custom-routes'
 import { DecodeError } from '../../shared/lib/utils'
@@ -532,119 +527,95 @@ export default class HotReloader {
 
         await Promise.all(
           Object.keys(entries).map(async (pageKey) => {
-            const isClientKey = pageKey.startsWith('client')
-            const isEdgeServerKey = pageKey.startsWith('edge-server')
-
-            if (isClientKey !== isClientCompilation) return
-            if (isEdgeServerKey !== isEdgeServerCompilation) return
-
-            const page = pageKey.slice(
-              isClientKey
-                ? 'client'.length
-                : isEdgeServerKey
-                ? 'edge-server'.length
-                : 'server'.length
-            )
-            const isMiddleware = !!page.match(MIDDLEWARE_ROUTE)
-
-            if (isClientCompilation && page.match(API_ROUTE)) {
-              return
-            }
-
-            if (isClientCompilation && isMiddleware) {
-              return
-            }
-
             const { bundlePath, absolutePagePath, dispose } = entries[pageKey]
+            const result = /^(client|server|edge-server)(.*)/g.exec(pageKey)
+            const [, key, page] = result! // this match should always happen
+            if (key === 'client' && !isClientCompilation) return
+            if (key === 'server' && !isNodeServerCompilation) return
+            if (key === 'edge-server' && !isEdgeServerCompilation) return
+
+            // Check if the page was removed or disposed and remove it
             const pageExists = !dispose && (await fileExists(absolutePagePath))
             if (!pageExists) {
-              // page was removed or disposed
               delete entries[pageKey]
               return
             }
 
-            const isApiRoute = page.match(API_ROUTE)
-            const isCustomError = isCustomErrorPage(page)
-            const isServerComponent =
-              this.hasServerComponents &&
-              isFlightPage(this.config, absolutePagePath)
-
-            const pageRuntimeConfig = await getPageRuntime(
-              absolutePagePath,
-              this.config
-            )
-            const isEdgeSSRPage =
-              pageRuntimeConfig === 'edge' && !isApiRoute && !isMiddleware
-
-            if (isNodeServerCompilation && isEdgeSSRPage && !isCustomError) {
-              return
-            }
-
-            if (isEdgeServerCompilation && !isEdgeSSRPage && !isMiddleware) {
-              return
-            }
-
-            entries[pageKey].status = BUILDING
-            const pageLoaderOpts: ClientPagesLoaderOptions = {
-              page,
-              absolutePagePath,
-            }
-
-            if (isClientCompilation) {
-              // A page route
-              entrypoints[bundlePath] = finalizeEntrypoint({
-                name: bundlePath,
-                value: `next-client-pages-loader?${stringify(pageLoaderOpts)}!`,
-                isNodeServer: false,
-              })
-
-              // Tell the middleware plugin of the client compilation
-              // that this route is a page.
-              if (isEdgeSSRPage) {
-                if (isServerComponent) {
-                  ssrEntries.set(bundlePath, { requireFlightManifest: true })
-                } else if (!isCustomError && !isReservedPage(page)) {
-                  ssrEntries.set(bundlePath, { requireFlightManifest: false })
-                }
-              }
-            } else if (isEdgeServerCompilation) {
-              if (isMiddleware) {
+            const addEdgeServerEntry = () => {
+              if (isEdgeServerCompilation) {
+                entries[pageKey].status = BUILDING
                 entrypoints[bundlePath] = finalizeEntrypoint({
                   name: bundlePath,
-                  value: `next-middleware-loader?${stringify(pageLoaderOpts)}!`,
                   isEdgeServer: true,
                   isMiddleware: true,
-                })
-              } else if (!isReservedPage(page)) {
-                entrypoints[bundlePath] = finalizeEntrypoint({
-                  name: '[name].js',
-                  value: `next-middleware-ssr-loader?${stringify({
-                    dev: true,
-                    page,
-                    stringifiedConfig: JSON.stringify(this.config),
-                    absoluteAppPath: this.pagesMapping['/_app'],
-                    absoluteAppServerPath: this.pagesMapping['/_app.server'],
-                    absoluteDocumentPath: this.pagesMapping['/_document'],
-                    absoluteErrorPath: this.pagesMapping['/_error'],
-                    absolute404Path: this.pagesMapping['/404'] || '',
+                  value: getEdgeServerEntry({
                     absolutePagePath,
-                    isServerComponent,
                     buildId: this.buildId,
-                  })}!`,
-                  isEdgeServer: true,
+                    bundlePath,
+                    config: this.config,
+                    isDev: true,
+                    page,
+                    pages: this.pagesMapping,
+                    ssrEntries,
+                  }),
                 })
               }
-            } else if (isNodeServerCompilation) {
-              let request = relative(config.context!, absolutePagePath)
-              if (!isAbsolute(request) && !request.startsWith('../')) {
-                request = `./${request}`
-              }
+            }
 
-              entrypoints[bundlePath] = finalizeEntrypoint({
-                name: bundlePath,
-                value: request,
-                isNodeServer: true,
-              })
+            const addNodeServerEntry = () => {
+              if (isNodeServerCompilation) {
+                entries[pageKey].status = BUILDING
+                let request = relative(config.context!, absolutePagePath)
+                if (!isAbsolute(request) && !request.startsWith('../')) {
+                  request = `./${request}`
+                }
+
+                entrypoints[bundlePath] = finalizeEntrypoint({
+                  isNodeServer: true,
+                  name: bundlePath,
+                  value: request,
+                })
+              }
+            }
+
+            const addClientEntry = () => {
+              if (isClientCompilation) {
+                entries[pageKey].status = BUILDING
+                entrypoints[bundlePath] = finalizeEntrypoint({
+                  name: bundlePath,
+                  isNodeServer: false,
+                  value: getClientEntry({
+                    absolutePagePath,
+                    page,
+                  }),
+                })
+              }
+            }
+
+            // Refactored generate entries
+            if (page.match(MIDDLEWARE_ROUTE)) {
+              return addEdgeServerEntry()
+            } else if (page.match(API_ROUTE)) {
+              return addNodeServerEntry()
+            } else if (page === '/_document') {
+              return addNodeServerEntry()
+            } else if (
+              page === '/_app' ||
+              page === '/_error' ||
+              page === '/404' ||
+              page === '/500'
+            ) {
+              addClientEntry()
+              addNodeServerEntry()
+              return
+            }
+
+            addClientEntry()
+            const runtime = await getPageRuntime(absolutePagePath, this.config)
+            if (runtime === 'edge') {
+              return addEdgeServerEntry()
+            } else {
+              return addNodeServerEntry()
             }
           })
         )
