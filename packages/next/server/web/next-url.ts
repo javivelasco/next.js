@@ -1,33 +1,27 @@
-import type { PathLocale } from '../../shared/lib/i18n/normalize-locale-path'
 import type { DomainLocale, I18NConfig } from '../config-shared'
-import { getLocaleMetadata } from '../../shared/lib/i18n/get-locale-metadata'
-import cookie from 'next/dist/compiled/cookie'
-import { replaceBasePath } from '../router-utils'
+import { detectDomainLocale } from '../../shared/lib/i18n/detect-domain-locale'
+import { getHostname } from '../../shared/lib/get-hostname'
+import { pathHasPrefix } from '../../shared/lib/router/utils/path-has-prefix'
+import { getStuff } from '../../shared/lib/router/utils/get-stuff'
 
 interface Options {
   base?: string | URL
   basePath?: string
   headers?: { [key: string]: string | string[] | undefined }
   i18n?: I18NConfig | null
-  trailingSlash?: boolean
 }
 
 const Internal = Symbol('NextURLInternal')
 
 export class NextURL {
   [Internal]: {
-    url: URL
-    options: Options
     basePath: string
     buildId?: string
-    locale?: {
-      defaultLocale: string
-      domain?: DomainLocale
-      locale: string
-      path: PathLocale
-      redirect?: string
-      trailingSlash?: boolean
-    }
+    defaultLocale?: string
+    domainLocale?: DomainLocale
+    locale?: string
+    options: Options
+    url: URL
   }
 
   constructor(input: string | URL, base?: string | URL, opts?: Options)
@@ -60,84 +54,53 @@ export class NextURL {
   }
 
   private analyzeUrl() {
-    const { headers = {}, basePath, i18n } = this[Internal].options
+    const stuff = getStuff(this[Internal].url, {
+      basePath: this[Internal].options.basePath,
+      locales: this[Internal].options.i18n?.locales,
+    })
 
-    if (this[Internal].url.pathname.startsWith('/_next/data/')) {
-      const [buildId, ...rest] = this[Internal].url.pathname
-        .replace(/^\/_next\/data\//, '')
-        .replace(/\.json$/, '')
-        .split('/')
-      this[Internal].buildId = buildId
-      this[Internal].url.pathname =
-        rest[0] !== 'index' ? `/${rest.join('/')}` : '/'
-    }
+    this[Internal].domainLocale = detectDomainLocale(
+      this[Internal].options.i18n?.domains,
+      getHostname(this[Internal].url, this[Internal].options.headers)
+    )
 
-    if (basePath && this[Internal].url.pathname.startsWith(basePath)) {
-      this[Internal].url.pathname = replaceBasePath(
-        this[Internal].url.pathname,
-        basePath
-      )
-      this[Internal].basePath = basePath
-    } else {
-      this[Internal].basePath = ''
-    }
+    const defaultLocale =
+      this[Internal].domainLocale?.defaultLocale ||
+      this[Internal].options.i18n?.defaultLocale
 
-    if (i18n) {
-      this[Internal].locale = getLocaleMetadata({
-        cookies: () => {
-          const value = headers['cookie']
-          return value
-            ? cookie.parse(Array.isArray(value) ? value.join(';') : value)
-            : {}
-        },
-        headers: headers,
-        nextConfig: {
-          basePath: basePath,
-          i18n: i18n,
-        },
-        url: {
-          hostname: this[Internal].url.hostname || null,
-          pathname: this[Internal].url.pathname,
-        },
-      })
-
-      if (this[Internal].locale?.path.detectedLocale) {
-        this[Internal].url.pathname = this[Internal].locale!.path.pathname
-      }
-    }
+    this[Internal].url.pathname = stuff.path
+    this[Internal].defaultLocale = defaultLocale
+    this[Internal].basePath = stuff.basePath ?? ''
+    this[Internal].buildId = stuff.buildId
+    this[Internal].locale = stuff.locale ?? defaultLocale
   }
 
   private formatPathname() {
-    const { i18n } = this[Internal].options
-    let pathname = this[Internal].url.pathname
-
-    if (
-      this[Internal].locale?.locale &&
-      ((i18n?.defaultLocale !== this[Internal].locale?.locale &&
-        !this.hasPathPrefix('/api')) ||
-        this[Internal].buildId)
-    ) {
-      pathname = `/${this[Internal].locale?.locale}${pathname}`
-    }
-
-    return this[Internal].buildId
-      ? `/_next/data/${this[Internal].buildId}${
-          pathname === '/' ? '/index' : pathname
-        }.json`
-      : `${this[Internal].basePath}${pathname}`
+    return formatStuff(
+      {
+        path: this[Internal].url.pathname,
+        basePath: this[Internal].basePath,
+        buildId: this[Internal].buildId,
+        locale: this[Internal].locale,
+      },
+      {
+        basePath: this[Internal].options.basePath,
+        locales: this[Internal].options.i18n?.locales,
+        defaultLocale: this[Internal].defaultLocale,
+      }
+    )
   }
 
   public get buildId() {
     return this[Internal].buildId
   }
 
-  private hasPathPrefix(prefix: string) {
-    const pathname = this[Internal].url.pathname
-    return pathname === prefix || pathname.startsWith(prefix + '/')
+  public set buildId(buildId: string | undefined) {
+    this[Internal].buildId = buildId
   }
 
   public get locale() {
-    return this[Internal].locale?.locale ?? ''
+    return this[Internal].locale ?? ''
   }
 
   public set locale(locale: string) {
@@ -150,15 +113,15 @@ export class NextURL {
       )
     }
 
-    this[Internal].locale!.locale = locale
+    this[Internal].locale = locale
   }
 
   get defaultLocale() {
-    return this[Internal].locale?.defaultLocale
+    return this[Internal].defaultLocale
   }
 
   get domainLocale() {
-    return this[Internal].locale?.domain
+    return this[Internal].domainLocale
   }
 
   get searchParams() {
@@ -297,4 +260,79 @@ function parseURL(url: string | URL, base?: string | URL) {
     String(url).replace(REGEX_LOCALHOST_HOSTNAME, 'localhost'),
     base && String(base).replace(REGEX_LOCALHOST_HOSTNAME, 'localhost')
   )
+}
+
+function addLocale(
+  path: string,
+  locale?: string | false,
+  defaultLocale?: string
+) {
+  if (locale && locale !== defaultLocale) {
+    const pathname = pathNoQueryHash(path)
+    const pathLower = pathname.toLowerCase()
+    const localeLower = locale.toLowerCase()
+
+    if (
+      !pathHasPrefix(pathLower, '/' + localeLower) &&
+      !pathHasPrefix(pathLower, '/api')
+    ) {
+      return addPathPrefix(path, '/' + locale)
+    }
+  }
+  return path
+}
+
+function addPathPrefix(path: string, prefix?: string) {
+  if (!path.startsWith('/') || !prefix) {
+    return path
+  }
+  const pathname = pathNoQueryHash(path)
+  return `${prefix}${pathname}` + path.slice(pathname.length)
+}
+
+function addPathSuffix(path: string, suffix: string) {
+  let pathname = pathNoQueryHash(path)
+  return `${pathname}${suffix}${path.slice(pathname.length)}`
+}
+
+function pathNoQueryHash(path: string) {
+  const queryIndex = path.indexOf('?')
+  const hashIndex = path.indexOf('#')
+
+  if (queryIndex > -1 || hashIndex > -1) {
+    path = path.substring(0, queryIndex > -1 ? queryIndex : hashIndex)
+  }
+  return path
+}
+
+interface Stuff {
+  basePath?: string
+  buildId?: string
+  locale?: string
+  path: string
+}
+
+interface StuffOptions {
+  basePath?: string
+  defaultLocale?: string // only to serialize
+  locales?: string[]
+}
+
+function formatStuff(stuff: Stuff, opts: StuffOptions) {
+  // first we add the locale if we have to
+  let path = addLocale(
+    stuff.path,
+    stuff.locale,
+    !stuff.buildId ? opts.defaultLocale : undefined
+  )
+
+  // then we maybe have to add the data format
+  if (stuff.buildId) {
+    path = addPathSuffix(
+      addPathPrefix(path, `/_next/data/${stuff.buildId}`),
+      stuff.path === '/' ? 'index.json' : '.json'
+    )
+  }
+
+  return addPathPrefix(path, stuff.basePath)
 }

@@ -22,7 +22,6 @@ export class NextResponse extends Response {
         ? new NextURL(init.url, {
             basePath: init.nextConfig?.basePath,
             i18n: init.nextConfig?.i18n,
-            trailingSlash: init.nextConfig?.trailingSlash,
             headers: toNodeHeaders(this.headers),
           })
         : undefined,

@@ -76,6 +76,8 @@ import ResponseCache from '../server/response-cache'
 import { removePathTrailingSlash } from '../client/normalize-trailing-slash'
 import { clonableBodyForRequest } from './body-streams'
 import { getMiddlewareRegex } from '../shared/lib/router/utils/route-regex'
+import { detectDomainLocale } from '../shared/lib/i18n/detect-domain-locale'
+import { getHostname } from '../shared/lib/get-hostname'
 
 export * from './base-server'
 
@@ -1220,9 +1222,16 @@ export default class NextNodeServer extends BaseServer {
         }
 
         const initUrl = getRequestMeta(req, '__NEXT_INIT_URL')!
+        const parsedInitUrl = parseUrl(initUrl)
+        const domainLocale = detectDomainLocale(
+          this.nextConfig.i18n?.domains,
+          getHostname(parsedInitUrl, req.headers)
+        )
+
         const parsedUrl = parseNextUrl({
-          url: initUrl,
-          headers: req.headers,
+          url: parsedInitUrl,
+          defaultLocale:
+            domainLocale?.defaultLocale || this.nextConfig.i18n?.defaultLocale,
           nextConfig: {
             basePath: this.nextConfig.basePath,
             i18n: this.nextConfig.i18n,

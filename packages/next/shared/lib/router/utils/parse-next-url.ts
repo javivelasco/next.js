@@ -1,54 +1,35 @@
-import { getCookieParser } from '../../../../server/api-utils'
-import { getLocaleMetadata } from '../../i18n/get-locale-metadata'
-import { parseUrl } from './parse-url'
-import type { NextConfig, DomainLocale } from '../../../../server/config-shared'
+import type { NextConfig } from '../../../../server/config-shared'
 import type { ParsedUrl } from './parse-url'
-import type { PathLocale } from '../../i18n/normalize-locale-path'
-import { hasBasePath, replaceBasePath } from '../../../../server/router-utils'
+import { getStuff, type Stuff } from './get-stuff'
 
 interface Params {
-  headers?: { [key: string]: string | string[] | undefined }
   nextConfig: NextConfig
-  url?: string
+  defaultLocale?: string
+  url: ParsedUrl
 }
 
-export function parseNextUrl({ headers, nextConfig, url = '/' }: Params) {
-  const urlParsed: ParsedNextUrl = parseUrl(url)
-  const { basePath } = nextConfig
-
-  if (basePath && hasBasePath(urlParsed.pathname, basePath)) {
-    urlParsed.pathname = replaceBasePath(urlParsed.pathname, basePath)
-    urlParsed.basePath = basePath
+export function parseNextUrl({ defaultLocale, nextConfig, url: p }: Params) {
+  const urlParsed: ParsedNextUrl = {
+    ...p,
+    stuff: getStuff(p, {
+      basePath: nextConfig.basePath,
+      defaultLocale,
+      locales: nextConfig.i18n?.locales,
+    }),
   }
 
-  if (nextConfig.i18n) {
-    urlParsed.locale = getLocaleMetadata({
-      cookies: getCookieParser(headers || {}),
-      headers: headers,
-      nextConfig: {
-        basePath: nextConfig.basePath,
-        i18n: nextConfig.i18n,
-        trailingSlash: nextConfig.trailingSlash,
-      },
-      url: urlParsed,
-    })
-
-    if (urlParsed.locale?.path.detectedLocale) {
-      urlParsed.pathname = urlParsed.locale.path.pathname
-    }
+  if (nextConfig.i18n && defaultLocale) {
+    // The locale is the locale in the path OR the default
+    urlParsed.locale = urlParsed.stuff.locale || defaultLocale
   }
+
+  urlParsed.pathname = urlParsed.stuff.path
 
   return urlParsed
 }
 
 export interface ParsedNextUrl extends ParsedUrl {
   basePath?: string
-  locale?: {
-    defaultLocale: string
-    domain?: DomainLocale
-    locale: string
-    path: PathLocale
-    redirect?: string
-    trailingSlash?: boolean
-  }
+  locale?: string
+  stuff: Stuff
 }

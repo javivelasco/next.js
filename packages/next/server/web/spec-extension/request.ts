@@ -31,7 +31,6 @@ export class NextRequest extends Request {
         basePath: init.nextConfig?.basePath,
         headers: toNodeHeaders(this.headers),
         i18n: init.nextConfig?.i18n,
-        trailingSlash: init.nextConfig?.trailingSlash,
       }),
     }
   }
