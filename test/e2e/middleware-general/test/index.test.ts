@@ -7,7 +7,7 @@ import { NextInstance } from 'test/lib/next-modes/base'
 import { check, fetchViaHTTP, waitFor } from 'next-test-utils'
 import { createNext, FileRef } from 'e2e-utils'
 
-const urlsError = 'Please use only absolute URLs'
+const urlsError = 'Invalid URL'
 
 describe('Middleware Runtime', () => {
   let next: NextInstance
@@ -507,22 +507,6 @@ describe('Middleware Runtime', () => {
         expect(readMiddlewareError(response)).toContain(urlsError)
       })
     }
-
-    it('should warn when using NextResponse.redirect with a relative URL', async () => {
-      const response = await fetchViaHTTP(
-        next.url,
-        `/url/relative-next-redirect`
-      )
-      expect(readMiddlewareError(response)).toContain(urlsError)
-    })
-
-    it('should throw when using NextResponse.rewrite with a relative URL', async () => {
-      const response = await fetchViaHTTP(
-        next.url,
-        `/url/relative-next-rewrite`
-      )
-      expect(readMiddlewareError(response)).toContain(urlsError)
-    })
 
     it('should trigger middleware for data requests', async () => {
       const browser = await webdriver(next.url, `/ssr-page`)

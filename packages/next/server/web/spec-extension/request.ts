@@ -17,7 +17,7 @@ export class NextRequest extends Request {
 
   constructor(input: Request | string, init: RequestInit = {}) {
     const url = typeof input === 'string' ? input : input.url
-    validateURL(url)
+    validateURL(url, { absolute: true })
     super(input, init)
     this[INTERNALS] = {
       cookies: new NextCookies(this),

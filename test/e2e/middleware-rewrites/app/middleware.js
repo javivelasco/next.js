@@ -59,6 +59,10 @@ export async function middleware(request) {
     })
   }
 
+  if (url.pathname === '/rewrite-me-to-about-relative') {
+    return NextResponse.rewrite('/about')
+  }
+
   if (url.pathname === '/rewrite-me-with-a-colon') {
     url.pathname = '/with:colon'
     return NextResponse.rewrite(url)

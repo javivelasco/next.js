@@ -70,7 +70,6 @@ import { loadComponents } from './load-components'
 import isError, { getProperError } from '../lib/is-error'
 import { FontManifest } from './font-utils'
 import { toNodeHeaders } from './web/utils'
-import { relativizeURL } from '../shared/lib/router/utils/relativize-url'
 import { prepareDestination } from '../shared/lib/router/utils/prepare-destination'
 import { normalizeLocalePath } from '../shared/lib/i18n/normalize-locale-path'
 import { getRouteMatcher } from '../shared/lib/router/utils/route-matcher'
@@ -1374,18 +1373,6 @@ export default class NextNodeServer extends BaseServer {
 
         if ('finished' in result) {
           return result
-        }
-
-        if (result.response.headers.has('x-middleware-rewrite')) {
-          const value = result.response.headers.get('x-middleware-rewrite')!
-          const rel = relativizeURL(value, initUrl)
-          result.response.headers.set('x-middleware-rewrite', rel)
-        }
-
-        if (result.response.headers.has('Location')) {
-          const value = result.response.headers.get('Location')!
-          const rel = relativizeURL(value, initUrl)
-          result.response.headers.set('Location', rel)
         }
 
         if (

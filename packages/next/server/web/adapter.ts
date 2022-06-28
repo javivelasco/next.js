@@ -61,6 +61,7 @@ export async function adapter(params: {
     })
   }
 
+  const url = request.nextUrl.clone()
   const event = new NextFetchEvent({ request, page: params.page })
   let response = await params.handler(request, event)
 
@@ -72,7 +73,7 @@ export async function adapter(params: {
    */
   const rewrite = response?.headers.get('x-middleware-rewrite')
   if (response && rewrite) {
-    const rewriteUrl = new NextURL(rewrite, {
+    const rewriteUrl = new NextURL(normalizeRelative(url, rewrite), {
       forceLocale: true,
       headers: params.request.headers,
       nextConfig: params.request.nextConfig,
@@ -80,7 +81,10 @@ export async function adapter(params: {
 
     if (rewriteUrl.host === request.nextUrl.host) {
       rewriteUrl.buildId = buildId || rewriteUrl.buildId
-      response.headers.set('x-middleware-rewrite', String(rewriteUrl))
+      response.headers.set(
+        'x-middleware-rewrite',
+        relativizeURL(String(rewriteUrl), String(requestUrl))
+      )
     }
 
     /**
@@ -103,7 +107,7 @@ export async function adapter(params: {
    */
   const redirect = response?.headers.get('Location')
   if (response && redirect) {
-    const redirectURL = new NextURL(redirect, {
+    const redirectURL = new NextURL(normalizeRelative(url, redirect), {
       forceLocale: false,
       headers: params.request.headers,
       nextConfig: params.request.nextConfig,
@@ -117,7 +121,10 @@ export async function adapter(params: {
 
     if (redirectURL.host === request.nextUrl.host) {
       redirectURL.buildId = buildId || redirectURL.buildId
-      response.headers.set('Location', String(redirectURL))
+      response.headers.set(
+        'Location',
+        relativizeURL(String(redirectURL), String(requestUrl))
+      )
     }
 
     /**
@@ -160,6 +167,17 @@ export function blockUnallowedResponse(
     }
     return result
   })
+}
+
+function normalizeRelative(nextUrl: NextURL, urlOrPath: string) {
+  if (urlOrPath.startsWith('/')) {
+    const url = new URL(urlOrPath, nextUrl.origin)
+    nextUrl.pathname = url.pathname
+    nextUrl.search = url.search
+    return String(nextUrl)
+  }
+
+  return urlOrPath
 }
 
 class NextRequestHint extends NextRequest {

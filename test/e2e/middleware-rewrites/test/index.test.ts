@@ -366,6 +366,21 @@ describe('Middleware Rewrite', () => {
       expect($('.title').text()).toBe('About Page')
     })
 
+    it(`${label}should rewrite to about with relative path`, async () => {
+      const res = await fetchViaHTTP(next.url, `${locale}/rewrite-me-to-about-relative`)
+      const html = await res.text()
+      const $ = cheerio.load(html)
+      const browser = await webdriver(next.url, `${locale}/rewrite-me-to-about-relative`)
+      try {
+        expect(await browser.eval(`window.location.pathname`)).toBe(
+          `${locale}/rewrite-me-to-about-relative`
+        )
+      } finally {
+        await browser.close()
+      }
+      expect($('.title').text()).toBe('About Page')
+    })
+
     it(`${label}support colons in path`, async () => {
       const path = `${locale}/not:param`
       const res = await fetchViaHTTP(next.url, path)

@@ -216,14 +216,14 @@ async function createModuleContext(options: ModuleContextOptions) {
       context.Request = class extends __Request {
         constructor(input: RequestInfo, init?: RequestInit | undefined) {
           const url = typeof input === 'string' ? input : input.url
-          validateURL(url)
+          validateURL(url, { absolute: true })
           super(input, init)
         }
       }
 
       const __redirect = context.Response.redirect.bind(context.Response)
       context.Response.redirect = (...args) => {
-        validateURL(args[0])
+        validateURL(args[0], { absolute: true })
         return __redirect(...args)
       }
 

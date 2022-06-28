@@ -102,16 +102,20 @@ export function splitCookiesString(cookiesString: string) {
   return cookiesStrings
 }
 
-/**
- * Validate the correctness of a user-provided URL.
- */
-export function validateURL(url: string | URL): string {
+export function validateURL(
+  url: string | URL,
+  opts?: {
+    absolute?: boolean
+  }
+): string {
   try {
-    return String(new URL(String(url)))
+    if (opts?.absolute ?? false) {
+      return String(new URL(url))
+    }
+
+    new URL(String(url), 'http://localhost')
+    return String(url)
   } catch (error: any) {
-    throw new Error(
-      `URLs is malformed. Please use only absolute URLs - https://nextjs.org/docs/messages/middleware-relative-urls`,
-      { cause: error }
-    )
+    throw new Error(`Invalid URL: ${String(url)}`, { cause: error })
   }
 }
